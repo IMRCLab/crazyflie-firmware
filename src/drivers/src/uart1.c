@@ -42,6 +42,7 @@
 #include "config.h"
 #include "nvicconf.h"
 #include "static_mem.h"
+#include "debug.h"
 
 /** This uart is conflicting with SPI2 DMA used in sensors_bmi088_spi_bmp388.c
  *  which is used in CF-Bolt. So for other products this can be enabled.
@@ -99,7 +100,7 @@ static void uart1DmaInit(void)
   DMA_InitStructureShare.DMA_Channel = UART1_DMA_CH;
 
   NVIC_InitStructure.NVIC_IRQChannel = UART1_DMA_IRQ;
-  NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = NVIC_MID_PRI;
+  NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = NVIC_UART1_DMA_PRI;
   NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
   NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
   NVIC_Init(&NVIC_InitStructure);
@@ -164,7 +165,7 @@ void uart1InitWithParity(const uint32_t baudrate, const uart1Parity_t parity)
   uart1DmaInit();
 
   NVIC_InitStructure.NVIC_IRQChannel = UART1_IRQ;
-  NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = NVIC_MID_PRI;
+  NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = NVIC_UART1_PRI;
   NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
   NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
   NVIC_Init(&NVIC_InitStructure);
@@ -205,10 +206,10 @@ bool uart1GetDataWithDefaultTimeout(uint8_t *c)
 void uart1SendData(uint32_t size, uint8_t* data)
 {
   uint32_t i;
-
-  if (!isInit)
-    return;
-
+  if (!isInit){
+    DEBUG_PRINT("DO NOT WORK \n");
+    return; 
+  }
   for(i = 0; i < size; i++)
   {
     while (!(UART1_TYPE->SR & USART_FLAG_TXE));

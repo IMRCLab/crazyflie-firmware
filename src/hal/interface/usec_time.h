@@ -33,6 +33,11 @@
 void initUsecTimer(void);
 
 /**
+ * Reset the microsecond-resolution timer to 0.
+ */
+void usecTimerReset(void);
+
+/**
  * Get microsecond-resolution timestamp.
  */
 uint64_t usecTimestamp(void);

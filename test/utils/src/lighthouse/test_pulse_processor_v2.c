@@ -1,3 +1,5 @@
+// @IGNORE_IF_NOT CONFIG_DECK_LIGHTHOUSE
+
 // File under test pulse_processor_v2.c
 #include "pulse_processor_v2.h"
 
@@ -440,7 +442,7 @@ void testThatSlowBitIsNotProcessedIfChannelIsMissing() {
 
 void testThatSlowBitIsNotProcessedIfChannelIsOutOfBounds() {
     // Fixture
-    slowbitFrame.channel = PULSE_PROCESSOR_N_BASE_STATIONS + 1;
+    slowbitFrame.channel = CONFIG_DECK_LIGHTHOUSE_MAX_N_BS + 1;
 
     setUpOotxDecoderProcessBitCallCounter();
 
@@ -675,12 +677,12 @@ static void setUpSlowbitFrame(){
     slowbitFrame.timestamp = 1000000;
     slowbitFrame.offset = 100000;
     slowbitFrame.channel = SB_CHANNEL;
-    slowbitFrame.slowbit = SB_BIT;
+    slowbitFrame.slowBit = SB_BIT;
     slowbitFrame.channelFound = true;
 }
 
 static void clearSlowbitState() {
-    for (int i = 0; i < PULSE_PROCESSOR_N_BASE_STATIONS; i++) {
+    for (int i = 0; i < CONFIG_DECK_LIGHTHOUSE_MAX_N_BS; i++) {
         state.v2.ootxTimestamps[i] = 0;
         state.bsCalibration[i].valid = false;
     }

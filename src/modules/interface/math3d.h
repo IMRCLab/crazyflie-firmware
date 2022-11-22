@@ -45,6 +45,35 @@ SOFTWARE.
 static inline float fsqr(float x) { return x * x; }
 static inline float radians(float degrees) { return (M_PI_F / 180.0f) * degrees; }
 static inline float degrees(float radians) { return (180.0f / M_PI_F) * radians; }
+
+// Normalize radians to be in range [-pi,pi]
+// See https://stackoverflow.com/questions/4633177/c-how-to-wrap-a-float-to-the-interval-pi-pi
+static inline float normalize_radians(float radians)
+{
+	// Copy the sign of the value in radians to the value of pi.
+	float signed_pi = copysignf(M_PI_F, radians);
+	// Set the value of difference to the appropriate signed value between pi and -pi.
+	radians = fmodf(radians + signed_pi, 2 * M_PI_F) - signed_pi;
+	return radians;
+}
+
+// modulo operation that uses the floored definition (as in Python), rather than
+// the truncated definition used for the % operator in C
+// See https://en.wikipedia.org/wiki/Modulo_operation
+static inline float fmodf_floored(float x, float n)
+{
+	return x - floorf(x / n) * n;
+}
+
+// compute shortest signed angle between two given angles (in range [-pi, pi])
+// See https://stackoverflow.com/questions/1878907/how-can-i-find-the-difference-between-two-angles
+static inline float shortest_signed_angle_radians(float start, float goal)
+{
+	float diff = goal - start;
+	float signed_diff = fmodf_floored(diff + M_PI_F, 2 * M_PI_F) - M_PI_F;
+	return signed_diff;
+}
+
 static inline float clamp(float value, float min, float max) {
   if (value < min) return min;
   if (value > max) return max;
@@ -264,6 +293,11 @@ static inline struct vec vadd4(struct vec a, struct vec b, struct vec c, struct 
 	// TODO: make sure it compiles to optimal code
 	return vadd(vadd(a, b), vadd(c, d));
 }
+// add 5 vectors.
+static inline struct vec vadd5(struct vec a, struct vec b, struct vec c, struct vec d, struct vec e) {
+	// TODO: make sure it compiles to optimal code
+	return vadd(vadd(vadd(vadd(a, b), c), d), e);
+}
 // subtract b and c from a.
 static inline struct vec vsub2(struct vec a, struct vec b, struct vec c) {
 	return vadd3(a, vneg(b), vneg(c));
@@ -348,6 +382,24 @@ static inline struct mat33 mcolumns(struct vec a, struct vec b, struct vec c) {
 
 	return m;
 }
+// construct a matrix from two vectors A = q*q.T 
+static inline struct mat33 vecmult(struct vec a) {
+	struct mat33 m;
+	m.m[0][0] = a.x*a.x;
+	m.m[1][0] = a.y*a.x;
+	m.m[2][0] = a.z*a.x;
+
+	m.m[0][1] = a.x*a.y;
+	m.m[1][1] = a.y*a.y;
+	m.m[2][1] = a.z*a.y;
+
+	m.m[0][2] = a.x*a.x;
+	m.m[1][2] = a.y*a.z;
+	m.m[2][2] = a.z*a.z;
+
+	return m;
+}
+
 // construct a matrix from three row vectors.
 static inline struct mat33 mrows(struct vec a, struct vec b, struct vec c) {
 	struct mat33 m;

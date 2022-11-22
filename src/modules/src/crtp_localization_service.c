@@ -38,7 +38,11 @@
 #include "stabilizer.h"
 #include "configblock.h"
 #include "worker.h"
+#include "autoconf.h"
+
+#ifdef CONFIG_DECK_LIGHTHOUSE
 #include "lighthouse_storage.h"
+#endif
 
 #include "locodeck.h"
 
@@ -48,6 +52,7 @@
 #include "peer_localization.h"
 
 #include "num.h"
+
 
 #define NBR_OF_RANGES_IN_PACKET   5
 #define NBR_OF_SWEEPS_IN_PACKET   2
@@ -75,7 +80,7 @@ typedef struct
 
 typedef struct {
   uint8_t type;
-  uint8_t basestation;
+  uint8_t baseStation;
   struct {
   float sweep;
     struct {
@@ -110,11 +115,14 @@ static CRTPPacket pkRange;
 static uint8_t rangeIndex;
 static bool enableRangeStreamFloat = false;
 
+#ifdef CONFIG_DECK_LIGHTHOUSE
 static CRTPPacket LhAngle;
+#endif
 static bool enableLighthouseAngleStream = false;
 static float extPosStdDev = 0.01;
 static float extQuatStdDev = 4.5e-3;
 static bool isInit = false;
+static bool isTimeSynced = false;
 static uint8_t my_id;
 static uint16_t tickOfLastPacket; // tick when last packet was received
 
@@ -161,7 +169,29 @@ static void updateLogFromExtPos()
   ext_pose.z = ext_pos.z;
 }
 
+/* This function is called from all localization events that use
+   broadcasts (i.e., pos, pos_packed, pose, pose_packed). The first
+   time such a broadcast is received, the usecTimer is reset to 0.
+   Since broadcasts are received simultanously at all Crazyflies,
+   this should reset the local on-board timer of all Crazyflies
+   at almost the same exact time.
+
+   TODO: In the future, it would be better to have a dedicated CRTP
+         functionality for this, rather than "piggybacking" on the
+         localization service for the motion capture.
+*/
+
+static void syncTimeIfNeeded()
+{
+  if (!isTimeSynced) {
+    usecTimerReset();
+    isTimeSynced = true;
+  }
+}
+
 static void extPositionHandler(CRTPPacket* pk) {
+  syncTimeIfNeeded();
+
   const struct CrtpExtPosition* data = (const struct CrtpExtPosition*)pk->data;
 
   ext_pos.x = data->x;
@@ -176,6 +206,8 @@ static void extPositionHandler(CRTPPacket* pk) {
 }
 
 static void extPoseHandler(const CRTPPacket* pk) {
+  syncTimeIfNeeded();
+
   const struct CrtpExtPose* data = (const struct CrtpExtPose*)&pk->data[1];
 
   ext_pose.x = data->x;
@@ -193,6 +225,8 @@ static void extPoseHandler(const CRTPPacket* pk) {
 }
 
 static void extPosePackedHandler(const CRTPPacket* pk) {
+  syncTimeIfNeeded();
+
   uint8_t numItems = (pk->size - 1) / sizeof(extPosePackedItem);
   for (uint8_t i = 0; i < numItems; ++i) {
     const extPosePackedItem* item = (const extPosePackedItem*)&pk->data[1 + i * sizeof(extPosePackedItem)];
@@ -243,11 +277,12 @@ typedef union {
 } __attribute__((packed)) LhPersistArgs_t;
 
 static void lhPersistDataWorker(void* arg) {
+#ifdef CONFIG_DECK_LIGHTHOUSE
   LhPersistArgs_t* args = (LhPersistArgs_t*) &arg;
 
   bool result = true;
 
-  for (int baseStation = 0; baseStation < PULSE_PROCESSOR_N_BASE_STATIONS; baseStation++) {
+  for (int baseStation = 0; baseStation < CONFIG_DECK_LIGHTHOUSE_MAX_N_BS; baseStation++) {
     uint16_t mask = 1 << baseStation;
     bool storeGeo = (args->geoDataBsField & mask) != 0;
     bool storeCalibration = (args->calibrationDataBsField & mask) != 0;
@@ -256,7 +291,9 @@ static void lhPersistDataWorker(void* arg) {
       break;
     }
   }
-
+#else
+  bool result = false;
+#endif
   CRTPPacket response = {
     .port = CRTP_PORT_LOCALIZATION,
     .channel = GENERIC_TYPE,
@@ -306,6 +343,8 @@ static void genericLocHandle(CRTPPacket* pk)
 
 static void extPositionPackedHandler(CRTPPacket* pk)
 {
+  syncTimeIfNeeded();
+
   uint8_t numItems = pk->size / sizeof(extPositionPackedItem);
   for (uint8_t i = 0; i < numItems; ++i) {
     const extPositionPackedItem* item = (const extPositionPackedItem*)&pk->data[i * sizeof(extPositionPackedItem)];
@@ -350,19 +389,21 @@ void locSrvSendRangeFloat(uint8_t id, float range)
   }
 }
 
-void locSrvSendLighthouseAngle(int basestation, pulseProcessorResult_t* angles)
+#ifdef CONFIG_DECK_LIGHTHOUSE
+void locSrvSendLighthouseAngle(int baseStation, pulseProcessorResult_t* angles)
 {
   anglePacket *ap = (anglePacket *)LhAngle.data;
 
   if (enableLighthouseAngleStream) {
-    ap->basestation = basestation;
+    ap->baseStation = baseStation;
+    pulseProcessorBaseStationMeasurement_t* baseStationMeasurement = &angles->baseStationMeasurementsLh1[baseStation];
 
     for(uint8_t its = 0; its < NBR_OF_SWEEPS_IN_PACKET; its++) {
-      float angle_first_sensor =  angles->sensorMeasurementsLh1[0].baseStatonMeasurements[basestation].correctedAngles[its];
+      float angle_first_sensor =  baseStationMeasurement->sensorMeasurements[0].correctedAngles[its];
       ap->sweeps[its].sweep = angle_first_sensor;
 
       for(uint8_t itd = 0; itd < NBR_OF_SENSOR_DIFFS_IN_PACKET; itd++) {
-        float angle_other_sensor = angles->sensorMeasurementsLh1[itd + 1].baseStatonMeasurements[basestation].correctedAngles[its];
+        float angle_other_sensor = baseStationMeasurement->sensorMeasurements[itd + 1].correctedAngles[its];
         uint16_t angle_diff = single2half(angle_first_sensor - angle_other_sensor);
         ap->sweeps[its].angleDiffs[itd].angleDiff = angle_diff;
       }
@@ -376,6 +417,7 @@ void locSrvSendLighthouseAngle(int basestation, pulseProcessorResult_t* angles)
     crtpSendPacket(&LhAngle);
   }
 }
+#endif
 
 // This logging group is deprecated
 LOG_GROUP_START(ext_pos)

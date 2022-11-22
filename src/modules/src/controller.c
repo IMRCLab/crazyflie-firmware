@@ -6,6 +6,10 @@
 #include "controller_pid.h"
 #include "controller_mellinger.h"
 #include "controller_indi.h"
+#include "controller_sjc.h"
+#include "controller_mellingerSI.h"
+#include "controller_lee.h"
+#include "controller_lee_payload.h"
 
 #include "autoconf.h"
 
@@ -26,6 +30,10 @@ static ControllerFcns controllerFunctions[] = {
   {.init = controllerPidInit, .test = controllerPidTest, .update = controllerPid, .name = "PID"},
   {.init = controllerMellingerInit, .test = controllerMellingerTest, .update = controllerMellinger, .name = "Mellinger"},
   {.init = controllerINDIInit, .test = controllerINDITest, .update = controllerINDI, .name = "INDI"},
+  {.init = controllerSJCInit, .test = controllerSJCTest, .update = controllerSJC, .name = "SJC"},
+  {.init = controllerMellingerSIInit, .test = controllerMellingerSITest, .update = controllerMellingerSI, .name = "MellingerSI"},
+  {.init = controllerLeeFirmwareInit, .test = controllerLeeFirmwareTest, .update = controllerLeeFirmware, .name = "Lee"},
+  {.init = controllerLeePayloadFirmwareInit, .test = controllerLeePayloadFirmwareTest, .update = controllerLeePayloadFirmware, .name = "LeePayload"},
 };
 
 

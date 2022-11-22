@@ -71,7 +71,7 @@ Decks can have a memory that contains its name. In our case the hello
 driver would be initialized only when a deck identified as \"myHello\"
 is installed on the Crazyflie. For development purpose it is possible to
 force enabling a deck driver with a compile flag. To do so set the
-`CONFIG_DECK_FORCE` config option to `myHello` in your `.config` either
+`CONFIG_DECK_FORCE` config option to `"myHello"` in your `.config` either
 by hand or using `make menuconfig`.
 
 `CONFIG_DEBUG=y` allows to get more information from the Crazyflie console when
@@ -92,6 +92,11 @@ following commands in a shell:
 crazyflie-firmware$ make clean && make
 crazyflie-firmware$ make cload
 ```
+
+> If you see `*** Configuration file ".config" not found!`, make sure 
+> select the right build config. Please see [the build instructions](/docs/building-and-flashing/build.md)
+
+
 
 The output will be similar to the following:
 

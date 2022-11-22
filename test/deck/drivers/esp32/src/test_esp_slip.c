@@ -1,8 +1,6 @@
 // File under test esp_slip.crftq
 #include "esp_slip.h"
 
-#define UART2_LINK_COMM 1
-
 #include <string.h>
 
 #include "unity.h"

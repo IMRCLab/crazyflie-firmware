@@ -1,6 +1,6 @@
 /**
- *    ||          ____  _ __                           
- * +------+      / __ )(_) /_______________ _____  ___ 
+ *    ||          ____  _ __
+ * +------+      / __ )(_) /_______________ _____  ___
  * | 0xBC |     / __  / / __/ ___/ ___/ __ `/_  / / _ \
  * +------+    / /_/ / / /_/ /__/ /  / /_/ / / /_/  __/
  *  ||  ||    /_____/_/\__/\___/_/   \__,_/ /___/\___/
@@ -37,11 +37,17 @@
 #define ENABLE_UARTSLK_RCC       RCC_APB2PeriphClockCmd
 #define UARTSLK_IRQ              USART6_IRQn
 
-#define UARTSLK_DMA_IRQ          DMA2_Stream7_IRQn
-#define UARTSLK_DMA_IT_TC        DMA_IT_TC
-#define UARTSLK_DMA_STREAM       DMA2_Stream7
-#define UARTSLK_DMA_CH           DMA_Channel_5
-#define UARTSLK_DMA_FLAG_TCIF    DMA_FLAG_TCIF7
+#define UARTSLK_DMA_TX_IRQ       DMA2_Stream7_IRQn
+#define UARTSLK_DMA_TX_IT_TC     DMA_IT_TC
+#define UARTSLK_DMA_TX_STREAM    DMA2_Stream7
+#define UARTSLK_DMA_TX_CH        DMA_Channel_5
+#define UARTSLK_DMA_TX_FLAG_TCIF DMA_FLAG_TCIF7
+
+#define UARTSLK_DMA_RX_IRQ       DMA2_Stream1_IRQn
+#define UARTSLK_DMA_RX_IT_TC     DMA_IT_TC
+#define UARTSLK_DMA_RX_STREAM    DMA2_Stream1
+#define UARTSLK_DMA_RX_CH        DMA_Channel_5
+#define UARTSLK_DMA_RX_FLAG_TCIF DMA_FLAG_TCIF1
 
 #define UARTSLK_GPIO_PERIF       RCC_AHB1Periph_GPIOC
 #define UARTSLK_GPIO_PORT        GPIOC
@@ -70,6 +76,16 @@ void uartslkInit(void);
  * @return true if the UART is initialized
  */
 bool uartslkTest(void);
+
+/**
+ * Pause incoming data handling (disable RX IRQ)
+ */
+void uartslkPauseRx(void);
+
+/**
+ * Resume incoming data handling (enable RX IRQ)
+ */
+void uartslkResumeRx(void);
 
 /**
  * Get CRTP link data structure
@@ -115,15 +131,8 @@ int uartslkPutchar(int ch);
 void uartslkSendDataDmaBlocking(uint32_t size, uint8_t* data);
 
 /**
- * Interrupt service routine handling UART interrupts.
+ * @brief Dump debug information to the console about the syslink performance
  */
-void uartslkIsr(void);
-
-/**
- * Interrupt service routine handling UART DMA interrupts.
- */
-void uartslkDmaIsr(void);
-
-void uartslkTxenFlowctrlIsr();
+void uartSyslinkDumpDebugProbe();
 
 #endif /* UART_SYSLINK_H_ */

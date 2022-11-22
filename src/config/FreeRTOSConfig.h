@@ -83,6 +83,7 @@
 #define configIDLE_SHOULD_YIELD		0
 #define configUSE_CO_ROUTINES 		0
 #define configCHECK_FOR_STACK_OVERFLOW      1
+#define configUSE_TASK_NOTIFICATIONS 1
 #define configUSE_TIMERS          1
 #define configTIMER_TASK_PRIORITY 1
 #define configTIMER_QUEUE_LENGTH  20
@@ -104,6 +105,7 @@ to exclude the API function. */
 #define INCLUDE_vTaskDelay				1
 #define INCLUDE_uxTaskGetStackHighWaterMark 1
 #define INCLUDE_xTaskGetIdleTaskHandle 1
+#define INCLUDE_xTimerPendFunctionCall 1
 
 #define configUSE_MUTEXES 1
 

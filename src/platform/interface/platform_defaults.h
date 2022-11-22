@@ -27,6 +27,8 @@
 
 #pragma once
 
+#include "autoconf.h"
+
 #define __INCLUDED_FROM_PLATFORM_DEFAULTS__
 
 #ifdef CONFIG_PLATFORM_CF2
@@ -37,4 +39,77 @@
 #endif
 #ifdef CONFIG_PLATFORM_TAG
     #include "platform_defaults_tag.h"
+#endif
+#ifdef CONFIG_PLATFORM_FLAPPER
+    #include "platform_defaults_flapper.h"
+#endif
+
+// IMU alignment on the airframe 
+#ifndef IMU_PHI
+    #define IMU_PHI     0.0f
+#endif
+#ifndef IMU_THETA
+    #define IMU_THETA   0.0f
+#endif
+#ifndef IMU_PSI
+    #define IMU_PSI     0.0f
+#endif
+
+// Attitude PID control filter settings
+#ifndef ATTITUDE_LPF_CUTOFF_FREQ 
+    #define ATTITUDE_LPF_CUTOFF_FREQ      15.0f
+#endif
+#ifndef ATTITUDE_LPF_ENABLE
+    #define ATTITUDE_LPF_ENABLE false
+#endif
+#ifndef ATTITUDE_ROLL_RATE_LPF_CUTOFF_FREQ
+    #define ATTITUDE_ROLL_RATE_LPF_CUTOFF_FREQ 30.0f
+#endif
+#ifndef ATTITUDE_PITCH_RATE_LPF_CUTOFF_FREQ
+    #define ATTITUDE_PITCH_RATE_LPF_CUTOFF_FREQ 30.0f
+#endif
+#ifndef ATTITUDE_YAW_RATE_LPF_CUTOFF_FREQ
+    #define ATTITUDE_YAW_RATE_LPF_CUTOFF_FREQ 30.0f
+#endif
+#ifndef ATTITUDE_RATE_LPF_ENABLE
+    #define ATTITUDE_RATE_LPF_ENABLE false
+#endif
+#ifndef ATTITUDE_RATE_FF_YAW
+    #define ATTITUDE_RATE_FF_YAW 0.0f
+#endif
+#ifndef YAW_MAX_DELTA
+    #define YAW_MAX_DELTA     0.0f
+#endif
+
+#ifndef PID_POS_XY_FILT_ENABLE
+    #define PID_POS_XY_FILT_ENABLE true
+#endif
+#ifndef PID_POS_XY_FILT_CUTOFF
+    #define PID_POS_XY_FILT_CUTOFF 20.0f
+#endif
+#ifndef PID_POS_Z_FILT_ENABLE
+    #define PID_POS_Z_FILT_ENABLE true
+#endif
+#ifndef PID_POS_Z_FILT_CUTOFF
+    #define PID_POS_Z_FILT_CUTOFF 20.0f
+#endif
+#ifndef PID_VEL_XY_FILT_ENABLE
+    #define PID_VEL_XY_FILT_ENABLE true
+#endif
+#ifndef PID_VEL_XY_FILT_CUTOFF
+    #define PID_VEL_XY_FILT_CUTOFF 20.0f
+#endif
+#ifndef PID_VEL_Z_FILT_ENABLE
+    #define PID_VEL_Z_FILT_ENABLE true
+#endif
+#ifndef PID_VEL_Z_FILT_CUTOFF
+    #define PID_VEL_Z_FILT_CUTOFF 20.0f
+#endif
+#ifndef PID_VEL_Z_FILT_CUTOFF_BARO_Z_HOLD
+    #define PID_VEL_Z_FILT_CUTOFF_BARO_Z_HOLD 0.7 f
+#endif
+
+// Tumble detection enabled by default
+#ifndef SUPERVISOR_TUMBLE_CHECK_ENABLE
+    #define SUPERVISOR_TUMBLE_CHECK_ENABLE true
 #endif

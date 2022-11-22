@@ -62,6 +62,7 @@ typedef struct vec3_s vector_t;
 typedef struct vec3_s point_t;
 typedef struct vec3_s velocity_t;
 typedef struct vec3_s acc_t;
+typedef struct vec3_s jerk_t;
 
 /* Orientation as a quaternion */
 typedef struct quaternion_s {
@@ -165,20 +166,58 @@ typedef struct state_s {
   point_t position;         // m
   velocity_t velocity;      // m/s
   acc_t acc;                // Gs (but acc.z without considering gravity)
+
+  // Measured state of the payload
+  point_t payload_pos;         // m   (world frame)
+  velocity_t payload_vel;      // m/s (world frame)
 } state_t;
 
+typedef enum control_mode_e {
+  controlModeLegacy      = 0, // legacy mode with int16_t roll, pitch, yaw and float thrust
+  controlModeForceTorque = 1,
+  controlModeForce       = 2,
+} control_mode_t;
+
 typedef struct control_s {
-  int16_t roll;
-  int16_t pitch;
-  int16_t yaw;
-  float thrust;
+  union {
+    struct {
+      // legacy part
+      int16_t roll;
+      int16_t pitch;
+      int16_t yaw;
+      float thrust;
+    };
+    struct {
+      float thrustSI;  // N
+      float torque[3]; // Nm
+      float u_all[3];
+    };
+    float normalizedForces[4]; // 0 ... 1
+  };
+  control_mode_t controlMode;
 } control_t;
 
+typedef enum motors_thrust_mode_e {
+  motorsThrustModePWM    = 0,
+  motorsThrustModeForce  = 1,
+} motors_thrust_mode_t;
+
 typedef struct motors_thrust_s {
-  uint16_t m1;  // PWM ratio
-  uint16_t m2;  // PWM ratio
-  uint16_t m3;  // PWM ratio
-  uint16_t m4;  // PWM ratio
+  union {
+    struct {
+      uint16_t m1;  // PWM ratio
+      uint16_t m2;  // PWM ratio
+      uint16_t m3;  // PWM ratio
+      uint16_t m4;  // PWM ratio
+    };
+    struct {
+      float f1;  // force in grams
+      float f2;  // force in grams
+      float f3;  // force in grams
+      float f4;  // force in grams
+    };
+  };
+  motors_thrust_mode_t mode;
 } motors_thrust_t;
 
 typedef enum mode_e {
@@ -197,6 +236,7 @@ typedef struct setpoint_s {
   point_t position;         // m
   velocity_t velocity;      // m/s
   acc_t acceleration;       // m/s^2
+  jerk_t jerk;              // m/s^3
   bool velocity_body;       // true if velocity is given in body frame; false if velocity is given in world frame
 
   struct {
@@ -268,7 +308,7 @@ typedef struct {
   const mat3d* rotorRot;     // Rotor rotation matrix
   const mat3d* rotorRotInv;  // Inverted rotor rotation matrix
   uint8_t sensorId;
-  uint8_t basestationId;
+  uint8_t baseStationId;
   uint8_t sweepId;
   float t;                   // t is the tilt angle of the light plane on the rotor
   float measuredSweepAngle;

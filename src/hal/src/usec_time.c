@@ -71,6 +71,16 @@ void initUsecTimer(void)
   isInit = true;
 }
 
+void usecTimerReset(void)
+{
+  IF_DEBUG_ASSERT(isInit);
+
+  const uint32_t zero = 0;
+  __atomic_store(&usecTimerHighCount, &zero, __ATOMIC_SEQ_CST);
+
+  TIM7->CNT = 0;
+}
+
 uint64_t usecTimestamp(void)
 {
   IF_DEBUG_ASSERT(isInit);

@@ -1,13 +1,13 @@
 /**
- * ,---------,       ____  _ __
- * |  ,-^-,  |      / __ )(_) /_______________ _____  ___
- * | (  O  ) |     / __  / / __/ ___/ ___/ __ `/_  / / _ \
- * | / ,--´  |    / /_/ / / /_/ /__/ /  / /_/ / / /_/  __/
- *    +------`   /_____/_/\__/\___/_/   \__,_/ /___/\___/
+ *    ||          ____  _ __
+ * +------+      / __ )(_) /_______________ _____  ___
+ * | 0xBC |     / __  / / __/ ___/ ___/ __ `/_  / / _ \
+ * +------+    / /_/ / / /_/ /__/ /  / /_/ / / /_/  __/
+ *  ||  ||    /_____/_/\__/\___/_/   \__,_/ /___/\___/
  *
  * Crazyflie control firmware
  *
- * Copyright (C) 2022 Bitcraze AB
+ * Copyright (C) 2022 Bitcraze AB & Flapper Drones (https://flapper-drones.com)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,18 +20,18 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *  
+ *
+ * flapperdeck.h: Flapper Nimble+ PCB driver
  */
 
-#pragma once
-#include <stdint.h>
-#include <stdbool.h>
+#ifndef _FLAPPERDECK_H_
+#define _FLAPPERDECK_H_
 
-/**
- * @brief Initialize the AI-deck CPX router.
- * 
- * Connect to Wifi (if configured) and start receiving CPX packages from
- * the AI-deck.
- * 
- */
-void aideckRouterInit(void);
+#include "deck_core.h"
+
+void flapperDeckInit(DeckInfo* info);
+
+bool flapperDeckTest(void);
+void flapperDeckTask(void* arg);
+
+#endif /* _FLAPPERDECK_H_ */

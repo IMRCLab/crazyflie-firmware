@@ -71,6 +71,10 @@
 #include "cfassert.h"
 #include "i2cdev.h"
 #include "autoconf.h"
+#include "vcp_esc_passthrough.h"
+#if CONFIG_ENABLE_CPX
+  #include "cpxlink.h"
+#endif
 
 #ifndef CONFIG_MOTORS_START_DISARMED
 #define ARM_INIT true
@@ -113,6 +117,9 @@ void systemInit(void)
 
   usblinkInit();
   sysLoadInit();
+#if CONFIG_ENABLE_CPX
+  cpxlinkInit();
+#endif
 
   /* Initialized here so that DEBUG_PRINT (buffered) can be used early */
   debugInit();
@@ -173,12 +180,13 @@ void systemTask(void *arg)
 #endif
 
 #ifdef CONFIG_DEBUG_PRINT_ON_UART1
-  uart1Init(115200);
+  uart1Init(CONFIG_DEBUG_PRINT_ON_UART1_BAUDRATE);
 #endif
 
   initUsecTimer();
   i2cdevInit(I2C3_DEV);
   i2cdevInit(I2C1_DEV);
+  passthroughInit();
 
   //Init the high-levels modules
   systemInit();
@@ -363,12 +371,12 @@ void systemSyslinkReceive(SyslinkPacket *slp)
 {
   if (slp->type == SYSLINK_SYS_NRF_VERSION)
   {
-    size_t len = slp->length - 2;
+    size_t len = slp->length - 1;
 
     if (sizeof(nrf_version) - 1 <=  len) {
       len = sizeof(nrf_version) - 1;
     }
-    memcpy(&nrf_version, &slp->data[0], len);
+    memcpy(&nrf_version, &slp->data[0], len );
     DEBUG_PRINT("NRF51 version: %s\n", nrf_version);
   }
 }

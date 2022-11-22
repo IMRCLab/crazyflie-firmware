@@ -58,6 +58,13 @@
 #define LOG_ERROR(...)
 #endif
 
+/**
+ * Verify that log function is initialized.
+ * This can happen if stats counter is used, STATS_CNT_RATE_INIT() might not
+ * have been called.
+ */
+#define ASSERT_LOG_FUNCTION_INITIALIZED(function) ASSERT(function)
+
 
 static const uint8_t typeLength[] = {
   [LOG_UINT8]  = 1,
@@ -114,6 +121,9 @@ struct ops_setting_v2 {
     uint16_t id;
 } __attribute__((packed));
 
+struct control_start_block_v2 {
+  uint16_t period_in_ms;
+} __attribute__((packed));
 
 #define TOC_CH      0
 #define CONTROL_CH  1
@@ -132,6 +142,7 @@ struct ops_setting_v2 {
 #define CONTROL_RESET           5
 #define CONTROL_CREATE_BLOCK_V2 6
 #define CONTROL_APPEND_BLOCK_V2 7
+#define CONTROL_START_BLOCK_V2  8
 
 #define BLOCK_ID_FREE -1
 
@@ -412,6 +423,12 @@ void logControlProcess()
       ret = logAppendBlockV2( p.data[1],
                             (struct ops_setting_v2*)&p.data[2],
                             (p.size-2)/sizeof(struct ops_setting_v2) );
+      break;
+    case CONTROL_START_BLOCK_V2:
+      {
+        struct control_start_block_v2* args = (struct control_start_block_v2 *)&p.data[2];
+        ret = logStartBlock(p.data[1], args->period_in_ms);
+      }
       break;
   }
 
@@ -746,6 +763,7 @@ void logRunBlock(void * arg)
         uint8_t v;
         if (ops->acquisitionType == acqType_function) {
           logByFunction_t* logByFunction = (logByFunction_t*)ops->variable;
+          ASSERT_LOG_FUNCTION_INITIALIZED(logByFunction->acquireUInt8);
           v = logByFunction->acquireUInt8(timestamp, logByFunction->data);
         } else {
           memcpy(&v, ops->variable, sizeof(v));
@@ -758,6 +776,7 @@ void logRunBlock(void * arg)
         int8_t v;
         if (ops->acquisitionType == acqType_function) {
           logByFunction_t* logByFunction = (logByFunction_t*)ops->variable;
+          ASSERT_LOG_FUNCTION_INITIALIZED(logByFunction->acquireInt8);
           v = logByFunction->acquireInt8(timestamp, logByFunction->data);
         } else {
           memcpy(&v, ops->variable, sizeof(v));
@@ -770,6 +789,7 @@ void logRunBlock(void * arg)
         uint16_t v;
         if (ops->acquisitionType == acqType_function) {
           logByFunction_t* logByFunction = (logByFunction_t*)ops->variable;
+          ASSERT_LOG_FUNCTION_INITIALIZED(logByFunction->acquireUInt16);
           v = logByFunction->acquireUInt16(timestamp, logByFunction->data);
         } else {
           memcpy(&v, ops->variable, sizeof(v));
@@ -782,6 +802,7 @@ void logRunBlock(void * arg)
         int16_t v;
         if (ops->acquisitionType == acqType_function) {
           logByFunction_t* logByFunction = (logByFunction_t*)ops->variable;
+          ASSERT_LOG_FUNCTION_INITIALIZED(logByFunction->acquireInt16);
           v = logByFunction->acquireInt16(timestamp, logByFunction->data);
         } else {
           memcpy(&v, ops->variable, sizeof(v));
@@ -794,6 +815,7 @@ void logRunBlock(void * arg)
         uint32_t v;
         if (ops->acquisitionType == acqType_function) {
           logByFunction_t* logByFunction = (logByFunction_t*)ops->variable;
+          ASSERT_LOG_FUNCTION_INITIALIZED(logByFunction->acquireUInt32);
           v = logByFunction->acquireUInt32(timestamp, logByFunction->data);
         } else {
           memcpy(&v, ops->variable, sizeof(v));
@@ -806,6 +828,7 @@ void logRunBlock(void * arg)
         int32_t v;
         if (ops->acquisitionType == acqType_function) {
           logByFunction_t* logByFunction = (logByFunction_t*)ops->variable;
+          ASSERT_LOG_FUNCTION_INITIALIZED(logByFunction->acquireInt32);
           v = logByFunction->acquireInt32(timestamp, logByFunction->data);
         } else {
           memcpy(&v, ops->variable, sizeof(v));
@@ -818,6 +841,7 @@ void logRunBlock(void * arg)
         float v;
         if (ops->acquisitionType == acqType_function) {
           logByFunction_t* logByFunction = (logByFunction_t*)ops->variable;
+          ASSERT_LOG_FUNCTION_INITIALIZED(logByFunction->aquireFloat);
           v = logByFunction->aquireFloat(timestamp, logByFunction->data);
         } else {
           memcpy(&v, ops->variable, sizeof(valuef));
