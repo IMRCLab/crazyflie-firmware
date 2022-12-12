@@ -31,10 +31,9 @@
 typedef struct controllerLeePayload_s {
     float mass; // TODO: should be CF global for other modules
     float mp; // mass payload
-    float l; // length of cable;
     float thrustSI;
     struct vec J; // Inertia matrix (diagonal matrix); kg m^2
-    float offset; // offset for reference
+    struct vec offset; // offset for reference
     //Position PID
     struct vec Kpos_P;
     float Kpos_P_limit;
@@ -75,7 +74,17 @@ typedef struct controllerLeePayload_s {
     struct vec u_i;
     struct vec qidot_prev;
     struct vec acc_prev;
+    struct vec F_d;
 
+    // desired value from the QP
+    struct vec desVirtInp;
+    struct vec n1;
+    struct vec n2;
+    struct vec n3;
+    struct vec n4;
+    struct vec n5;
+    struct vec n6;
+    float radius;
 } controllerLeePayload_t;
 
 
