@@ -49,9 +49,11 @@ struct QPInput
   struct vec F_d;
   struct vec M_d;
   struct vec plStPos;
+  struct quat plStquat;
   struct vec statePos;
   struct vec statePos2;
   struct vec statePos3;
+  uint8_t num_neighbors;
   uint8_t ids[2]; // ids for statePos2, statePos3
   controllerLeePayload_t* self;
 };
@@ -139,8 +141,7 @@ static inline struct vec computePlaneNormal(struct vec ps1, struct vec ps2, stru
   else{
     pos1 = p2_new;
   }
-  // printf("pos1: %f %f %f\n", (double) pos1.x, (double) pos1.y, (double) pos1.z);
-  // printf("pos2: %f %f %f\n", (double) pos2.x, (double) pos2.y, (double) pos2.z);
+
   struct vec mid = vscl(0.5, vsub(pos2, pos1));
   struct vec rvec = vscl(r, vnormalize(vsub(pos1, pos2)));
   struct vec pr = vadd(pos1, vadd(mid, rvec));
@@ -151,30 +152,7 @@ static inline struct vec computePlaneNormal(struct vec ps1, struct vec ps2, stru
   struct vec n_sol = vcross(p0pr, ns);
   return n_sol;
 }
-static inline struct mat26 Ainequality(float angle_limit) {
-  struct vec q1_limit = mkvec(-radians(angle_limit), 0 , 0);
-  struct vec q2_limit = mkvec(radians(angle_limit), 0 , 0);
 
-  struct quat q1 = rpy2quat(q1_limit);
-  struct quat q2 = rpy2quat(q2_limit);
-
-  struct mat33 R1 = quat2rotmat(q1);
-  struct mat33 R2 = quat2rotmat(q2);
-  struct vec e3 = mkvec(0,0,-1);
-  // Final vectors to rotate
-  struct vec q1vec = mvmul(R1, e3);
-  struct vec q2vec = mvmul(R2, e3);
-  
-  struct quat q_rotate = rpy2quat(mkvec(0,0,radians(20.0)));
-  struct vec q1_ = qvrot(q_rotate, q1vec); 
-  struct vec q2_ = qvrot(q_rotate, q2vec); 
-
-  struct vec n1 = vcross(q1vec, q1_);
-  struct vec n2 = vcross(q2vec, q2_);
-  
-  struct mat26 A_in = addrows(n1,n2);
-  return A_in;
-}
 
 static controllerLeePayload_t g_self = {
   .mass = 0.034,
@@ -226,225 +204,216 @@ static controllerLeePayload_t g_self = {
 
 static void runQP(const struct QPInput *input, struct QPOutput* output)
 {
-    struct vec F_d = input->F_d;
-    struct vec M_d = input->M_d;
-    struct vec statePos = input->statePos;
-    struct vec plStPos = input->plStPos;
+  struct vec F_d = input->F_d;
+  struct vec M_d = input->M_d;
+  uint8_t num_neighbors = input->num_neighbors;
+  struct vec statePos = input->statePos;
+  struct vec plStPos = input->plStPos;
+  // struct quat plStquat = input->plStquat;
+  float l1 = vmag(vsub(plStPos, statePos));
+  float radius = input->self->radius;
+  struct vec desVirtInp   = input->self->desVirtInp;
+  struct vec desVirt_prev = input->self->desVirtInp;
+  
+  if (num_neighbors >= 1) {
+   // declare additional variables
     struct vec statePos2 = input->statePos2;
-    struct vec statePos3 = input->statePos3;
-    float l1 = vmag(vsub(plStPos, statePos));
     float l2 = vmag(vsub(plStPos, statePos2));
-    float l3 = vmag(vsub(plStPos, statePos3));
-    float radius = input->self->radius;
-
-    // att points
     struct vec attPoint = input->self->attachement_points[0].point;
     struct vec attPoint2 = input->self->attachement_points[1].point;
-    struct vec attPoint3 = input->self->attachement_points[2].point;
-
-    struct vec desVirt_prev =  input->self->desVirtInp;
     struct vec desVirt2_prev = input->self->desVirt2_prev;
-    struct vec desVirt3_prev = input->self->desVirt3_prev;
 
-    // find the corresponding attachement points
-    for (uint8_t i = 0; i < 3; ++i) {
-      if (input->self->attachement_points[i].id == input->ids[0]) {
-        attPoint2 = input->self->attachement_points[i].point;
-      } else if (input->self->attachement_points[i].id == input->ids[1]) {
-        attPoint3 = input->self->attachement_points[i].point;
+    if (num_neighbors == 1) {
+      if (!isnanf(input->plStquat.w)) {
+        // QP for 2 uavs 1 hp, rigid rod will be added it here!
+        // Set corresponding attachment points
+        for (uint8_t i = 0; i < num_neighbors+1; ++i) {
+          if (input->self->attachement_points[i].id == input->ids[0]) {
+            attPoint2 = input->self->attachement_points[i].point;
+          } else {
+            attPoint = input->self->attachement_points[i].point;
+          }
+        }
       } else {
-        attPoint = input->self->attachement_points[i].point;
+        // Solve QP for 2 uavs 1 hp point mass
+        OSQPWorkspace* workspace = &workspace_2uav_2hp;
+        workspace->settings->warm_start = 1;
+        struct vec n1 = computePlaneNormal(statePos, statePos2, plStPos, radius, l1, l2);
+        struct vec n2 = computePlaneNormal(statePos2, statePos, plStPos, radius, l2, l1);
+       
+        c_float Ax_new[12] = {1, n1.x, 1, n1.y, 1, n1.z, 1,  n2.x, 1, n2.y, 1, n2.z};  
+        c_int Ax_new_n = 12;
+        c_float l_new[6] =  {F_d.x,	F_d.y,	F_d.z, -INFINITY, -INFINITY,};
+        c_float u_new[6] =  {F_d.x,	F_d.y,	F_d.z, 0, 0,};
+        const float factor = - 2.0f * input->self->lambdaa / (1.0f + input->self->lambdaa);
+        c_float q_new[6] = {factor * desVirt_prev.x,  factor * desVirt_prev.y,  factor * desVirt_prev.z,
+                            factor * desVirt2_prev.x, factor * desVirt2_prev.y, factor * desVirt2_prev.z,
+                          };
+        
+        osqp_update_A(workspace, Ax_new, OSQP_NULL, Ax_new_n);    
+        osqp_update_lin_cost(workspace, q_new);
+        osqp_update_lower_bound(workspace, l_new);
+        osqp_update_upper_bound(workspace, u_new);
+        osqp_solve(workspace);
+        if (workspace->info->status_val == OSQP_SOLVED) {
+          desVirtInp.x = (workspace)->solution->x[0];
+          desVirtInp.y = (workspace)->solution->x[1];
+          desVirtInp.z = (workspace)->solution->x[2];
+          input->self->desVirt2_prev.x =  (workspace)->solution->x[3];
+          input->self->desVirt2_prev.y =  (workspace)->solution->x[4];
+          input->self->desVirt2_prev.z =  (workspace)->solution->x[5];
+        } else {
+        #ifdef CRAZYFLIE_FW
+              DEBUG_PRINT("QP: %s\n", workspace->info->status);
+        #else
+              printf("QP: %s\n", workspace->info->status);
+        #endif
+            }
+        input->self->n1 = n1;
+        input->self->n2 = n2;
+        output->desVirtInp = desVirtInp; 
+      }
+    } else if (num_neighbors >= 2) {
+     // declare additional variables
+      struct vec statePos3 = input->statePos3;     
+      float l3 = vmag(vsub(plStPos, statePos3));
+      struct vec attPoint3 = input->self->attachement_points[2].point;  
+      struct vec desVirt3_prev = input->self->desVirt3_prev;
+
+      if (num_neighbors == 2) {
+        if (!isnanf(input->plStquat.w)) {
+          // solve QP for 3 uavs 2 hps and rigid triangle payload
+          for (uint8_t i = 0; i < num_neighbors+1; ++i) {
+            if (input->self->attachement_points[i].id == input->ids[0]) {
+              attPoint2 = input->self->attachement_points[i].point;
+            } else if (input->self->attachement_points[i].id == input->ids[1]) {
+              attPoint3 = input->self->attachement_points[i].point;
+            } else {
+              attPoint = input->self->attachement_points[i].point;
+            }
+          }
+          OSQPWorkspace* workspace = &workspace_3uav_2hp_rig;
+          workspace->settings->warm_start = 1;
+
+          c_float x_warm[9] = {  desVirt_prev.x,    desVirt_prev.y,    desVirt_prev.z,
+                                desVirt2_prev.x,   desVirt2_prev.y,   desVirt2_prev.z, 
+                                desVirt3_prev.x,   desVirt3_prev.y,   desVirt3_prev.z};
+          osqp_warm_start_x(workspace, x_warm);
+          struct vec n1 = computePlaneNormal(statePos, statePos2, plStPos,  radius, l1, l2);
+          struct vec n2 = computePlaneNormal(statePos, statePos3, plStPos,  radius, l1, l3);
+          struct vec n3 = computePlaneNormal(statePos2, statePos, plStPos,  radius, l2, l1);
+          struct vec n4 = computePlaneNormal(statePos2, statePos3, plStPos, radius, l2, l3);
+          struct vec n5 = computePlaneNormal(statePos3, statePos, plStPos,  radius, l3, l1);
+          struct vec n6 = computePlaneNormal(statePos3, statePos2, plStPos, radius, l3, l2);
+
+          c_float Ax_new[45] = {
+            1, attPoint.z, -attPoint.y, n1.x, n2.x, 1, -attPoint.z, attPoint.x, n1.y, n2.y, 1, attPoint.y, -attPoint.x, n1.z, n2.z,
+            1, attPoint2.z, -attPoint2.y, n3.x, n4.x, 1, -attPoint2.z, attPoint2.x, n3.y, n4.y, 1, attPoint2.y, -attPoint2.x, n3.z, n4.z,
+            1, attPoint3.z, -attPoint3.y, n5.x, n6.x, 1, -attPoint3.z, attPoint3.x, n5.y, n6.y, 1, attPoint3.y, -attPoint3.x, n5.z, n6.z,
+          };
+          c_int Ax_new_n = 45;
+          c_float l_new[12] =  {F_d.x,	F_d.y,	F_d.z,  M_d.x,  M_d.y,  M_d.z,  -INFINITY, -INFINITY, -INFINITY, -INFINITY, -INFINITY, -INFINITY,};
+          c_float u_new[12] =  {F_d.x,	F_d.y,	F_d.z,  M_d.x,  M_d.y,  M_d.z, 0, 0,  0, 0,  0, 0};
+
+          /* P = np.eye(9) [can't be changed online]
+             x^2 + lambda (x^2 - 2xx_d + x_d^2)
+             => J = (1+lambda) x^2 - 2 * lambda x_d x
+             =>   = x^2 - 2 * lambda / (1+lambda) x_d x
+             => q = -2 * lambda / (1+lambda) * x_d
+          */
+          const float factor = - 2.0f * input->self->lambdaa / (1.0f + input->self->lambdaa);
+
+          c_float q_new[9] = {factor * desVirt_prev.x,  factor * desVirt_prev.y,  factor * desVirt_prev.z,
+                              factor * desVirt2_prev.x, factor * desVirt2_prev.y, factor * desVirt2_prev.z, 
+                              factor * desVirt3_prev.x, factor * desVirt3_prev.y, factor * desVirt3_prev.z};
+
+          osqp_update_A(workspace, Ax_new, OSQP_NULL, Ax_new_n);    
+          osqp_update_lin_cost(workspace, q_new);
+          osqp_update_lower_bound(workspace, l_new);
+          osqp_update_upper_bound(workspace, u_new);
+          osqp_solve(workspace);
+
+          if (workspace->info->status_val == OSQP_SOLVED) {
+            desVirtInp.x = (workspace)->solution->x[0];
+            desVirtInp.y = (workspace)->solution->x[1];
+            desVirtInp.z = (workspace)->solution->x[2];
+            
+            input->self->desVirt2_prev.x =  (workspace)->solution->x[3];
+            input->self->desVirt2_prev.y =  (workspace)->solution->x[4];
+            input->self->desVirt2_prev.z =  (workspace)->solution->x[5];
+            input->self->desVirt3_prev.x =  (workspace)->solution->x[6];
+            input->self->desVirt3_prev.y =  (workspace)->solution->x[7];
+            input->self->desVirt3_prev.z =  (workspace)->solution->x[8];
+          } else {
+          #ifdef CRAZYFLIE_FW
+                DEBUG_PRINT("QP: %s\n", workspace->info->status);
+          #else
+                printf("QP: %s\n", workspace->info->status);
+          #endif
+              }
+          input->self->n1 = n1;
+          input->self->n2 = n2;
+          input->self->n3 = n3;
+          input->self->n4 = n4;
+          input->self->n5 = n5;
+          input->self->n6 = n6;
+          output->desVirtInp = desVirtInp;
+        } else {
+          // solve QP for 3 uavs 2 hps and point mass
+          OSQPWorkspace* workspace = &workspace_3uav_2hp;
+          workspace->settings->warm_start = 1;
+          struct vec n1 = computePlaneNormal(statePos, statePos2, plStPos,  radius, l1, l2);
+          struct vec n2 = computePlaneNormal(statePos, statePos3, plStPos,  radius, l1, l3);
+          struct vec n3 = computePlaneNormal(statePos2, statePos, plStPos,  radius, l2, l1);
+          struct vec n4 = computePlaneNormal(statePos2, statePos3, plStPos, radius, l2, l3);
+          struct vec n5 = computePlaneNormal(statePos3, statePos, plStPos,  radius, l3, l1);
+          struct vec n6 = computePlaneNormal(statePos3, statePos2, plStPos, radius, l3, l2);
+
+          c_float Ax_new[27] = {1, n1.x, n2.x, 1, n1.y, n2.y, 1, n1.z, n2.z, 1, n3.x, n4.x, 1, n3.y, n4.y, 1, n3.z, n4.z, 1, n5.x, n6.x, 1, n5.y, n6.y, 1, n5.z, n6.z, };
+          c_int Ax_new_n = 27;
+          c_float l_new[9] =  {F_d.x,	F_d.y,	F_d.z, -INFINITY, -INFINITY, -INFINITY, -INFINITY, -INFINITY, -INFINITY,};
+          c_float u_new[9] =  {F_d.x,	F_d.y,	F_d.z, 0, 0,  0, 0,  0, 0};
+          const float factor = - 2.0f * input->self->lambdaa / (1.0f + input->self->lambdaa);
+
+          c_float q_new[9] = {factor * desVirt_prev.x,  factor * desVirt_prev.y,  factor * desVirt_prev.z,
+                              factor * desVirt2_prev.x, factor * desVirt2_prev.y, factor * desVirt2_prev.z, 
+                              factor * desVirt3_prev.x, factor * desVirt3_prev.y, factor * desVirt3_prev.z};
+
+          osqp_update_A(workspace, Ax_new, OSQP_NULL, Ax_new_n);    
+          osqp_update_lin_cost(workspace, q_new);
+          osqp_update_lower_bound(workspace, l_new);
+          osqp_update_upper_bound(workspace, u_new);
+          osqp_solve(workspace);
+
+          if (workspace->info->status_val == OSQP_SOLVED) {
+            desVirtInp.x = (workspace)->solution->x[0];
+            desVirtInp.y = (workspace)->solution->x[1];
+            desVirtInp.z = (workspace)->solution->x[2];
+            
+            input->self->desVirt2_prev.x =  (workspace)->solution->x[3];
+            input->self->desVirt2_prev.y =  (workspace)->solution->x[4];
+            input->self->desVirt2_prev.z =  (workspace)->solution->x[5];
+            input->self->desVirt3_prev.x =   (workspace)->solution->x[6];
+            input->self->desVirt3_prev.y =   (workspace)->solution->x[7];
+            input->self->desVirt3_prev.z =   (workspace)->solution->x[8];
+          } else {
+          #ifdef CRAZYFLIE_FW
+                DEBUG_PRINT("QP: %s\n", workspace->info->status);
+          #else
+                printf("QP: %s\n", workspace->info->status);
+          #endif
+              }
+          input->self->n1 = n1;
+          input->self->n2 = n2;
+          input->self->n3 = n3;
+          input->self->n4 = n4;
+          input->self->n5 = n5;
+          input->self->n6 = n6;
+          output->desVirtInp = desVirtInp;
+        }
       }
     }
-    // printf("\nattPoint: %f %f %f\n", attPoint.x, attPoint.y, attPoint.z);
-    // printf("StatePos: %f %f %f\n", statePos.x, statePos.y, statePos.z);
-    // printf("attPoint2: %f %f %f\n", attPoint2.x, attPoint2.y, attPoint2.z);
-    // printf("statePos2: %f %f %f\n", statePos2.x, statePos2.y, statePos2.z);
-    // printf("attPoint3: %f %f %f\n", attPoint3.x, attPoint3.y, attPoint3.z);
-    // printf("statePos3: %f %f %f\n", statePos3.x, statePos3.y, statePos3.z);
-    // DEBUG_PRINT("s %f %f %f\n", (double)statePos.x, (double)statePos.y, (double)statePos.z);
-    // DEBUG_PRINT("ap %f %f %f\n", (double)attPoint.x, (double)attPoint.y, (double)attPoint.z);
-
-    // DEBUG_PRINT("s2 %f %f %f\n", (double)statePos2.x, (double)statePos2.y, (double)statePos2.z);
-    // DEBUG_PRINT("ap2 %f %f %f\n", (double)attPoint2.x, (double)attPoint2.y, (double)attPoint2.z);
-
-    // DEBUG_PRINT("s3 %f %f %f\n", (double)statePos3.x, (double)statePos3.y, (double)statePos3.z);
-    // DEBUG_PRINT("ap3 %f %f %f\n", (double)attPoint3.x, (double)attPoint3.y, (double)attPoint3.z);
-
-
-
-    // printf("\n%f %f %f\n", attPoint.x, attPoint.y, attPoint.z);
-    // printf("%f %f %f\n", attPoint2.x, attPoint2.y, attPoint2.z);
-    // printf("%f %f %f\n", attPoint3.x, attPoint3.y, attPoint3.z);
-    // printf("\n%f %f %f\n", statePos.x, statePos.y, statePos.z);
-    // printf("%f %f %f\n", statePos2.x, statePos2.y, statePos2.z);
-    // printf("%f %f %f\n", statePos3.x, statePos3.y, statePos3.z);
-
-    struct vec desVirtInp = input->self->desVirtInp;
-
-    //------------------------------------------QP------------------------------//
-    // The QP will be added here for the desired virtual input (mu_des)
-    // OSQPWorkspace* workspace = &workspace_2uav_2hp;
-    // workspace->settings->warm_start = 1;
-    // struct vec n1 = computePlaneNormal(statePos, statePos2, plStPos, radius, l1, l2);
-    // struct vec n2 = computePlaneNormal(statePos2, statePos, plStPos, radius, l2, l1);
-    // c_float Ax_new[12] = {1, n1.x, 1, n1.y, 1, n1.z, 1,  n2.x, 1, n2.y, 1, n2.z};
-    // // c_float Px_new[6] = {1, 1, 1, 1, 1, 1};
-    
-    // c_int Ax_new_idx[12] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
-    // // c_int Px_new_idx[6] = {0, 1, 2, 3, 4, 5};
-    // c_int Ax_new_n = 12;
-    // // c_int Px_new_n = 6;
-   
-    // c_float l_new[6] =  {F_d.x,	F_d.y,	F_d.z, -INFINITY, -INFINITY,};
-    // c_float u_new[6] =  {F_d.x,	F_d.y,	F_d.z, 0, 0,};
-
-    // OSQPWorkspace* workspace = &workspace_3uav_2hp;
-    // workspace->settings->warm_start = 1;
-
-    // struct vec n1 = computePlaneNormal(statePos, statePos2, plStPos,  radius, l1, l2);
-    // struct vec n2 = computePlaneNormal(statePos, statePos3, plStPos,  radius, l1, l3);
-    // struct vec n3 = computePlaneNormal(statePos2, statePos, plStPos,  radius, l2, l1);
-    // struct vec n4 = computePlaneNormal(statePos2, statePos3, plStPos, radius, l2, l3);
-    // struct vec n5 = computePlaneNormal(statePos3, statePos, plStPos,  radius, l3, l1);
-    // struct vec n6 = computePlaneNormal(statePos3, statePos2, plStPos, radius, l3, l2);
-    // // printf("%f\n",(double)workspace->data->A->nzmax);
-    // c_float Ax_new[27] = {1, n1.x, n2.x, 1, n1.y, n2.y, 1, n1.z, n2.z, 1, n3.x, n4.x, 1, n3.y, n4.y, 1, n3.z, n4.z, 1, n5.x, n6.x, 1, n5.y, n6.y, 1, n5.z, n6.z, };
-    // // c_int Ax_new_idx[27] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26};
-    // c_int Ax_new_n = 27;
-    // c_float l_new[9] =  {F_d.x,	F_d.y,	F_d.z, -INFINITY, -INFINITY, -INFINITY, -INFINITY, -INFINITY, -INFINITY,};
-    // c_float u_new[9] =  {F_d.x,	F_d.y,	F_d.z, 0, 0,  0, 0,  0, 0};
-
-    OSQPWorkspace* workspace = &workspace_3uav_2hp_rig;
-    workspace->settings->warm_start = 1;
-  // settings = {'eps_abs': 1.0e-5, 'eps_rel' : 1.0e-05,
-  // 'eps_prim_inf' : 1.0e-04, 'eps_dual_inf' : 1.0e-04,'rho' : 1.00e-01,
-  // 'sigma' : 1.00e-06, 'alpha' : 1.60 ,'max_iter': 1000, 
-  // 'verbose': False, 'linsys_solver': 'qdldl', 'check_termination': 25, 'polish': True}
-
-    c_float x_warm[9] = {  desVirt_prev.x,    desVirt_prev.y,    desVirt_prev.z,
-                          desVirt2_prev.x,   desVirt2_prev.y,   desVirt2_prev.z, 
-                          desVirt3_prev.x,   desVirt3_prev.y,   desVirt3_prev.z};
-    osqp_warm_start_x(workspace, x_warm);
-
-    // workspace->settings->eps_abs           = 0.00001f; 
-    // workspace->settings->eps_rel           = 0.00001f;
-    // workspace->settings->eps_prim_inf      = 0.0001f;
-    // workspace->settings->eps_dual_inf      = 0.0001f;
-    // workspace->settings->rho               = 0.1f; 
-    // workspace->settings->sigma             = 0.000001f; 
-    // workspace->settings->alpha             = 1.6f;
-    // workspace->settings->max_iter          = 1000; 
-    // workspace->settings->check_termination = 25; 
-
-
-    struct vec n1 = computePlaneNormal(statePos, statePos2, plStPos,  radius, l1, l2);
-    struct vec n2 = computePlaneNormal(statePos, statePos3, plStPos,  radius, l1, l3);
-    struct vec n3 = computePlaneNormal(statePos2, statePos, plStPos,  radius, l2, l1);
-    struct vec n4 = computePlaneNormal(statePos2, statePos3, plStPos, radius, l2, l3);
-    struct vec n5 = computePlaneNormal(statePos3, statePos, plStPos,  radius, l3, l1);
-    struct vec n6 = computePlaneNormal(statePos3, statePos2, plStPos, radius, l3, l2);
-
-    c_float Ax_new[45] = {
-      1, attPoint.z, -attPoint.y, n1.x, n2.x, 1, -attPoint.z, attPoint.x, n1.y, n2.y, 1, attPoint.y, -attPoint.x, n1.z, n2.z,
-      1, attPoint2.z, -attPoint2.y, n3.x, n4.x, 1, -attPoint2.z, attPoint2.x, n3.y, n4.y, 1, attPoint2.y, -attPoint2.x, n3.z, n4.z,
-      1, attPoint3.z, -attPoint3.y, n5.x, n6.x, 1, -attPoint3.z, attPoint3.x, n5.y, n6.y, 1, attPoint3.y, -attPoint3.x, n5.z, n6.z,
-    };
-    c_int Ax_new_n = 45;
-    c_float l_new[12] =  {F_d.x,	F_d.y,	F_d.z,  M_d.x,  M_d.y,  M_d.z,  -INFINITY, -INFINITY, -INFINITY, -INFINITY, -INFINITY, -INFINITY,};
-    c_float u_new[12] =  {F_d.x,	F_d.y,	F_d.z,  M_d.x,  M_d.y,  M_d.z, 0, 0,  0, 0,  0, 0};
-
-    // P = np.eye(9) [can't be changed online]
-    // x^2 + lambda (x^2 - 2xx_d + x_d^2)
-    // => J = (1+lambda) x^2 - 2 * lambda x_d x
-    // =>   = x^2 - 2 * lambda / (1+lambda) x_d x
-    // => q = -2 * lambda / (1+lambda) * x_d
-
-    const float factor = - 2.0f * input->self->lambdaa / (1.0f + input->self->lambdaa);
-
-    c_float q_new[9] = {factor * desVirt_prev.x,  factor * desVirt_prev.y,  factor * desVirt_prev.z,
-                        factor * desVirt2_prev.x, factor * desVirt2_prev.y, factor * desVirt2_prev.z, 
-                        factor * desVirt3_prev.x, factor * desVirt3_prev.y, factor * desVirt3_prev.z};
-
-
-    osqp_update_A(workspace, Ax_new, OSQP_NULL, Ax_new_n);    
-
-    // c_int j, i, row_start, row_stop;
-    // c_int k = 0;
-
-    // for (j = 0; j < workspace->data->A->n; j++) {
-    //   row_start = workspace->data->A->p[j];
-    //   row_stop  = workspace->data->A->p[j + 1];
-
-    //   if (row_start == row_stop) continue;
-    //   else {
-    //     for (i = row_start; i < row_stop; i++) {
-    //       printf("\t[%3u,%3u] = %.3g\n", (int)workspace->data->A->i[i], (int)j, workspace->data->A->x[k++]);
-    //     }
-    //   }
-    // }
-
-
-    osqp_update_lin_cost(workspace, q_new);
-    // osqp_update_P(workspace, Px_new, Px_new_idx, Px_new_n);
-    osqp_update_lower_bound(workspace, l_new);
-    osqp_update_upper_bound(workspace, u_new);
-    
-    osqp_solve(workspace);
-    
-    
-    // printf("\nmu_des= %f %f %f %f %f %f %f %f %f\n", 
-    // (workspace)->solution->x[0], (workspace)->solution->x[1], (workspace)->solution->x[2],
-    // (workspace)->solution->x[3], (workspace)->solution->x[4], (workspace)->solution->x[5],
-    // (workspace)->solution->x[6], (workspace)->solution->x[7], (workspace)->solution->x[8]);
-    if (workspace->info->status_val == OSQP_SOLVED) {
-      desVirtInp.x = (workspace)->solution->x[0];
-      desVirtInp.y = (workspace)->solution->x[1];
-      desVirtInp.z = (workspace)->solution->x[2];
-      
-      // input->self->desVirtInp = desVirtInp;
-      input->self->desVirt2_prev.x =  (workspace)->solution->x[3];
-      input->self->desVirt2_prev.y =  (workspace)->solution->x[4];
-      input->self->desVirt2_prev.z =  (workspace)->solution->x[5];
-      input->self->desVirt3_prev.x =   (workspace)->solution->x[6];
-      input->self->desVirt3_prev.y =   (workspace)->solution->x[7];
-      input->self->desVirt3_prev.z =   (workspace)->solution->x[8];
-    } else {
-#ifdef CRAZYFLIE_FW
-      DEBUG_PRINT("QP: %s\n", workspace->info->status);
-#else
-      printf("QP: %s\n", workspace->info->status);
-#endif
-    }
-    // printf("workspace_2uav_2hp status:   %s\n", (workspace)->info->status);
-    // printf("tick: %f \n uavID: %d solution: %f %f %f %f %f %f\n", tick, self->value, (workspace)->solution->x[0], (workspace)->solution->x[1], (workspace)->solution->x[2], (workspace)->solution->x[3], (workspace)->solution->x[4], (workspace)->solution->x[5]);
-    // printf("tick: %d \n uavID: %f solution: %f %f %f %f %f %f\n", tick, self->value, self->mu1.x, self->mu1.y, self->mu1.z, self->mu2.x, self->mu2.y, self->mu2.z);
-    // if (tick % 1000 == 0) {
-
-    //   DEBUG_PRINT("\n value: %f, desVirtInp: %f %f %f\n", (double) self->value, (double)(self->desVirtInp.x),(double)(self->desVirtInp.y),(double)(self->desVirtInp.z));
-    //   DEBUG_PRINT("\n state 2 %f %f %f\n", (double)(state->position_neighbors[0].x), (double)(state->position_neighbors[0].y), (double)(state->position_neighbors[0].z));
-      // printf("\n state 2 %f %f %f\n", statePos2.x, statePos2.y, statePos2.z);
-      // printf("\n n1 %f %f %f\n", n1.x, n1.y, n1.z);
-      // printf("\n n2 %f %f %f\n", n2.x, n2.y, n2.z);
-      // printf("\n n3 %f %f %f\n", n3.x, n3.y, n3.z);
-      // printf("\n n4 %f %f %f\n", n4.x, n4.y, n4.z);
-      // printf("\n n5 %f %f %f\n", n5.x, n5.y, n5.z);
-      // printf("\n n6 %f %f %f\n", n6.x, n6.y, n6.z);
-      // printf("\n state 3 %f %f %f\n", statePos3.x, statePos3.y, statePos3.z);
-    //   DEBUG_PRINT("\nn1: %f %f %f\n", (double) (self->n1.x), (double)(self->n1.y),(double)(self->n1.z));
-    //   DEBUG_PRINT("\nn2: %f %f %f\n", (double) (self->n2.x), (double)(self->n2.y),(double)(self->n2.z));
-    // }
-    
-    //------------------------------------------QP------------------------------//
-
-    input->self->n1 = n1;
-    input->self->n2 = n2;
-    input->self->n3 = n3;
-    input->self->n4 = n4;
-    input->self->n5 = n5;
-    input->self->n6 = n6;
-    // return desVirtInp;
-    output->desVirtInp = desVirtInp;
+  }
 }
 #ifdef CRAZYFLIE_FW
 
@@ -458,10 +427,16 @@ static struct vec computeDesiredVirtualInput(controllerLeePayload_t* self, const
   qpinput.M_d = M_d;
   qpinput.plStPos = mkvec(state->payload_pos.x, state->payload_pos.y, state->payload_pos.z);
   qpinput.statePos = mkvec(state->position.x, state->position.y, state->position.z);
+    // We assume that we always have at least 1 neighbor
   qpinput.statePos2 = mkvec(state->neighbors[0].pos.x, state->neighbors[0].pos.y, state->neighbors[0].pos.z);
-  qpinput.statePos3 = mkvec(state->neighbors[1].pos.x, state->neighbors[1].pos.y, state->neighbors[1].pos.z);
   qpinput.ids[0] = state->neighbors[0].id;
-  qpinput.ids[1] = state->neighbors[1].id;
+  qpinput.num_neighbors = state->num_neighbors;
+  if (state->num_neighbors == 2) 
+  {
+    qpinput.statePos3 = mkvec(state->neighbors[1].pos.x, state->neighbors[1].pos.y, state->neighbors[1].pos.z);
+    qpinput.ids[1] = state->neighbors[1].id;
+  }  
+
   qpinput.self = self;
   xQueueOverwrite(queueQPInput, &qpinput);
 
@@ -497,13 +472,20 @@ static struct vec computeDesiredVirtualInput(controllerLeePayload_t* self, const
 
   // push the latest change to the QP
   qpinput.F_d = F_d;
-  qpinput.M_d = M_d;
+  qpinput.M_d = M_d; 
   qpinput.plStPos = mkvec(state->payload_pos.x, state->payload_pos.y, state->payload_pos.z);
+  qpinput.plStquat = mkquat(state->payload_quat.x, state->payload_quat.y, state->payload_quat.z, state->payload_quat.w);
   qpinput.statePos = mkvec(state->position.x, state->position.y, state->position.z);
+
+  // We assume that we always have at least 1 neighbor
   qpinput.statePos2 = mkvec(state->neighbors[0].pos.x, state->neighbors[0].pos.y, state->neighbors[0].pos.z);
-  qpinput.statePos3 = mkvec(state->neighbors[1].pos.x, state->neighbors[1].pos.y, state->neighbors[1].pos.z);
   qpinput.ids[0] = state->neighbors[0].id;
-  qpinput.ids[1] = state->neighbors[1].id;
+  qpinput.num_neighbors = state->num_neighbors;
+  if (state->num_neighbors == 2) 
+  {
+    qpinput.statePos3 = mkvec(state->neighbors[1].pos.x, state->neighbors[1].pos.y, state->neighbors[1].pos.z);
+    qpinput.ids[1] = state->neighbors[1].id;
+  }  
   qpinput.self = self;
   // solve the QP
   runQP(&qpinput, &qpoutput);
@@ -625,10 +607,16 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, setp
       vneg(veltmul(self->Kprot_P, eRp)),
       vneg(veltmul(self->Kprot_D, omega_perror))
     );
-    struct vec F_dP = mvmul(mtranspose(Rp),self->F_d);
+    if (!isnanf(plquat.w)) {
+      struct vec F_dP = mvmul(mtranspose(Rp),self->F_d);
+      self->desVirtInp = computeDesiredVirtualInput(self, state, F_dP, self->M_d);
+    }
+    else{
+      self->desVirtInp = computeDesiredVirtualInput(self, state, self->F_d, self->M_d);
+
+    }
     // computed desired generalized forces in rigid payload case for equation 23 is Pmu_des = [Rp.T@F_d, M_d]
     // if a point mass for the payload is considered then: Pmu_des = F_d
-    self->desVirtInp = computeDesiredVirtualInput(self, state, F_dP, self->M_d);
 
     //directional unit vector qi and angular velocity wi pointing from UAV to payload
     struct vec qi = vnormalize(vsub(plStPos, statePos)); 
