@@ -21,3 +21,4 @@ obj-$(CONFIG_DECK_ZRANGER2)      += zranger2.o
 # obj-y                            += loadcell_nau7802.o
 # obj-y                            += rpm.o
 # obj-y                            += acs37800.o
+obj-y                            += deck_servo.o
