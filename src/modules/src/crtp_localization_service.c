@@ -137,6 +137,12 @@ void locSrvInit()
   isInit = true;
 }
 
+uint8_t locSrvMyId(void) 
+{
+  return my_id;
+}
+
+
 static void locSrvCrtpCB(CRTPPacket* pk)
 {
   switch (pk->channel)

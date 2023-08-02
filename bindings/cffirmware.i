@@ -133,23 +133,30 @@ void collisionAvoidanceUpdateSetpointWrap(
     free(workspace);
 }
 
-void state_set_neighbor_position(state_t *state, int idx, uint8_t id, float x, float y, float z)
+void state_set_position(state_t *state, int idx, uint8_t id, float x, float y, float z)
 {
-    state->neighbors[idx].id = id;
-    state->neighbors[idx].pos.x = x;
-    state->neighbors[idx].pos.y = y;
-    state->neighbors[idx].pos.z = z;
+    state->team_state[idx].id = id;
+    state->team_state[idx].pos.x = x;
+    state->team_state[idx].pos.y = y;
+    state->team_state[idx].pos.z = z;
 }
 
-void controller_lee_payload_set_attachement(controllerLeePayload_t* self, int idx, uint8_t id, float x, float y, float z, float mdx, float mdy, float mdz)
+struct vec controller_lee_payload_get_n(controllerLeePayload_t* self, int idx) 
+{
+    struct vec n = mkvec(self->n[idx].x, self->n[idx].y, self->n[idx].z);
+    return n;
+}
+
+// void controller_lee_payload_set_attachement(controllerLeePayload_t* self, int idx, uint8_t id, float x, float y, float z, float mdx, float mdy, float mdz)
+void controller_lee_payload_set_attachement(controllerLeePayload_t* self, int idx, uint8_t id, float x, float y, float z)
 {
     self->attachement_points[idx].id = id;
     self->attachement_points[idx].point.x = x;
     self->attachement_points[idx].point.y = y;
     self->attachement_points[idx].point.z = z;
-    self->attachement_points[idx].mu_desired.x = mdx;
-    self->attachement_points[idx].mu_desired.y = mdy;
-    self->attachement_points[idx].mu_desired.z = mdz;
+    // self->attachement_points[idx].mu_desired.x = mdx;
+    // self->attachement_points[idx].mu_desired.y = mdy;
+    // self->attachement_points[idx].mu_desired.z = mdz;
 }
 
 void controller_lee_payload_set_Pinv(controllerLeePayload_t* self, int idx, int id1, int id2, int row, int column, float value)

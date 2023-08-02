@@ -72,4 +72,6 @@ void locSrvInit(void);
 void locSrvSendRangeFloat(uint8_t id, float range);
 void locSrvSendLighthouseAngle(int basestation, pulseProcessorResult_t* angles);
 
+uint8_t locSrvMyId(void);
+
 #endif /* _CRTP_LOCALIZATION_SERVICE_H_ */

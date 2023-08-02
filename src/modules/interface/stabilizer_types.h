@@ -31,7 +31,7 @@
 #include "imu_types.h"
 #include "lighthouse_types.h"
 
-#define MAX_NEIGHBOR_UAVS (3)
+#define MAX_TEAM_SIZE (12)
 
 /* Data structure used by the stabilizer subsystem.
  * All have a timestamp to be set when the data is calculated.
@@ -169,11 +169,13 @@ typedef struct state_s {
   velocity_t velocity;      // m/s
   acc_t acc;                // Gs (but acc.z without considering gravity)
   // positions of the neighboring UAVs
-  uint8_t num_neighbors;
+
+  // team_state[0] always refers to self => num_uavs >= 1
+  uint8_t num_uavs;
   struct {
     uint8_t id;
     point_t pos;
-  } neighbors[MAX_NEIGHBOR_UAVS];
+  } team_state[MAX_TEAM_SIZE];
   // Measured state of the payload
   point_t payload_pos;         // m   (world frame)
   quaternion_t payload_quat;   // orientation (world frame)
@@ -288,7 +290,7 @@ typedef struct setpoint_s {
     uint8_t id;
     float az; // rad
     float el; // rad
-  } cableAngles[3];
+  } cableAngles[MAX_TEAM_SIZE];
 
 } setpoint_t;
 

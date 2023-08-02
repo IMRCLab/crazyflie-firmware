@@ -305,7 +305,12 @@ static void stabilizerTask(void* param)
       stateEstimator(&state, tick);
 
       // add the payload and neighbor states here
-      uint8_t num_neighbors = 0;
+      uint8_t num_uavs = 1;
+      state.team_state[0].id = locSrvMyId();
+      state.team_state[0].pos.x = state.position.x;
+      state.team_state[0].pos.y = state.position.y;
+      state.team_state[0].pos.z = state.position.z;
+
       for (int i = 0; i < PEER_LOCALIZATION_MAX_NEIGHBORS; ++i) {
 
         peerLocalizationOtherPosition_t const *other = peerLocalizationGetPositionByIdx(i);
@@ -380,16 +385,16 @@ static void stabilizerTask(void* param)
             state.payload_omega = payload_omega_last;
           }
 
-        } else if (num_neighbors < MAX_NEIGHBOR_UAVS) {
+        } else if (num_uavs < MAX_TEAM_SIZE) {
           // handle regular team members
-          state.neighbors[num_neighbors].id = other->id;
-          state.neighbors[num_neighbors].pos.x = other->pos.x;
-          state.neighbors[num_neighbors].pos.y = other->pos.y;
-          state.neighbors[num_neighbors].pos.z = other->pos.z;
-          ++num_neighbors;
+          state.team_state[num_uavs].id = other->id;
+          state.team_state[num_uavs].pos.x = other->pos.x;
+          state.team_state[num_uavs].pos.y = other->pos.y;
+          state.team_state[num_uavs].pos.z = other->pos.z;
+          ++num_uavs;
         }
       }
-      state.num_neighbors = num_neighbors;
+      state.num_uavs = num_uavs;
 
       compressState();
 

@@ -39,15 +39,13 @@ typedef struct controllerLeePayload_s {
         uint8_t id;
         struct vec point;
         float l; // cable length; set to <= 0 to compute automatically based on the measurements
-
-        struct vec mu_desired; // desired mu (if lambda is < 0)
-    } attachement_points[3];
+    } attachement_points[MAX_TEAM_SIZE];
 
     struct {
         uint8_t id1;
         uint8_t id2;
         struct mat66 Pinv;
-    } Pinvs[3];
+    } Pinvs[MAX_TEAM_SIZE];
     
     //Position PID
     struct vec Kpos_P;
@@ -118,9 +116,8 @@ typedef struct controllerLeePayload_s {
     // desired value from the QP
     struct vec desVirtInp;
 
-    struct vec desVirt_prev;
-    struct vec desVirt2_prev;
-    struct vec desVirt3_prev;
+    struct vec desVirt[MAX_TEAM_SIZE];
+    struct vec desVirt_prev[MAX_TEAM_SIZE];
     uint32_t desVirtInp_tick;
 
     float lambdaa; // regularization on how close to stay to previous value
@@ -134,29 +131,24 @@ typedef struct controllerLeePayload_s {
     struct quat prev_q_des;
     uint32_t prev_q_tick;
 
-    struct vec n1;
-    struct vec n2;
-    struct vec n3;
-    struct vec n4;
-    struct vec n5;
-    struct vec n6;
+    struct vec n[MAX_TEAM_SIZE * (MAX_TEAM_SIZE-1)];
     float radius;
 
     // osqp warm start aid
     struct osqp_warmstart_hyperplane_rb {
         float x[6];
         float y[8];
-    } osqp_warmstart_hyperplane_rbs[3];
+    } osqp_warmstart_hyperplane_rbs[MAX_TEAM_SIZE];
 
     struct osqp_warmstart_compute_Fd_pair {
         float x[9];
         float y[6];
-    } osqp_warmstart_compute_Fd_pairs[3];
+    } osqp_warmstart_compute_Fd_pairs[MAX_TEAM_SIZE];
 
     struct osqp_warmstart_hyperplane {
         float x[4];
         float y[3];
-    } osqp_warmstart_hyperplanes[3];
+    } osqp_warmstart_hyperplanes[MAX_TEAM_SIZE];
 
     // integral state (30), (31), (32) in Lee's paper
     struct vec delta_bar_x0;
@@ -176,8 +168,17 @@ typedef struct controllerLeePayload_s {
     float pitch_des;
 
     // desired cable unit vector
-    struct vec desiredCableUnitVec[3];
+    // struct vec desiredCableUnitVec[MAX_TEAM_SIZE];
     // struct vec desiredCableUnitVec2;
+
+    #ifndef CRAZYFLIE_FW
+    float solve_time_Fd; // ms
+    float solve_time_svm; // ms
+    float solve_time_mu; // ms
+    float solve_time_total; //ms
+    #endif
+
+
 } controllerLeePayload_t;
 
 
