@@ -1610,7 +1610,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, setp
     struct vec z_w = mkvec(0, 0, 1);
     float desiredYawRate = radians(setpoint->attitudeRate.yaw) * vdot(zdes, z_w);
     struct vec omega_des = mkvec(-vdot(hw,ydes), vdot(hw,xdes), desiredYawRate);
-    self->omega_r = mvmul(mmul(mtranspose(self->R), self->R_des), omega_des);
+    // self->omega_r = mvmul(mmul(mtranspose(self->R), self->R_des), omega_des);
   }
 
 
