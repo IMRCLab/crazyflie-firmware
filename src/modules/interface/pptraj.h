@@ -121,8 +121,10 @@ struct traj_eval
 	struct vec vel;
 	struct vec acc;
 	struct vec jerk;
-	struct vec omega;
-	float yaw;
+	struct vec snap;
+	float yaw; //rad
+	float yaw_dot; // rad/s
+	float yaw_ddot; // rad/s^2
 };
 
 // a traj_eval with all zero members.

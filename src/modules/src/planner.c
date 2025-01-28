@@ -201,7 +201,7 @@ int plan_go_to_from(struct planner *p, const struct traj_eval *curr_eval, bool r
 	}
 	else {
 		piecewise_plan_7th_order_no_jerk(&p->planned_trajectory, duration,
-		curr_eval->pos, curr_yaw, curr_eval->vel, curr_eval->omega.z, curr_eval->acc,
+		curr_eval->pos, curr_yaw, curr_eval->vel, curr_eval->yaw_dot, curr_eval->acc,
 		hover_pos,      goal_yaw,      vzero(),        0,                  vzero());
 	}
 

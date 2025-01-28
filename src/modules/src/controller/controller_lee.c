@@ -119,6 +119,9 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     desiredYaw = self->rpy_des.z;
   }
 
+  struct vec xc = mkvec(cosf(desiredYaw), sinf(desiredYaw), 0);
+  struct vec yc = mkvec(-sinf(desiredYaw), cosf(desiredYaw), 0);
+
   // Position controller
   if (   setpoint->mode.x == modeAbs
       || setpoint->mode.y == modeAbs
@@ -153,26 +156,10 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     }
 
     // Compute Desired Rotation matrix
-    float normFd = control->thrustSi;
-
-    struct vec xdes = vbasis(0);
-    struct vec ydes = vbasis(1);
-    struct vec zdes = vbasis(2);
-   
-    if (normFd > 0) {
-      zdes = vnormalize(F_d);
-    } 
-    struct vec xcdes = mkvec(cosf(desiredYaw), sinf(desiredYaw), 0); 
-    struct vec zcrossx = vcross(zdes, xcdes);
-    float normZX = vmag(zcrossx);
-
-    if (normZX > 0) {
-      ydes = vnormalize(zcrossx);
-    } 
-    xdes = vcross(ydes, zdes);
-    
-    self->R_des = mcolumns(xdes, ydes, zdes);
-
+    struct vec xb = vnormalize(vcross(yc, F_d));
+    struct vec yb = vnormalize(vcross(F_d, xb));
+    struct vec zb = vcross(xb, yb);
+    self->R_des = mcolumns(xb, yb, zb);
   } else {
     if (setpoint->mode.z == modeDisable) {
       if (setpoint->thrust < 1000) {
@@ -218,21 +205,43 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     radians(sensors->gyro.z));
 
   // Compute desired omega
-  struct vec xdes = mcolumn(self->R_des, 0);
-  struct vec ydes = mcolumn(self->R_des, 1);
-  struct vec zdes = mcolumn(self->R_des, 2);
-  struct vec hw = vzero();
-  // Desired Jerk and snap for now are zeros vector
+  struct vec xb = mcolumn(self->R_des, 0);
+  struct vec yb = mcolumn(self->R_des, 1);
+  struct vec zb = mcolumn(self->R_des, 2);
   struct vec desJerk = mkvec(setpoint->jerk.x, setpoint->jerk.y, setpoint->jerk.z);
-
-  if (control->thrustSi != 0) {
-    struct vec tmp = vsub(desJerk, vscl(vdot(zdes, desJerk), zdes));
-    hw = vscl(self->mass/control->thrustSi, tmp);
-  }
-  struct vec z_w = mkvec(0,0,1); 
-  float desiredYawRate = radians(setpoint->attitudeRate.yaw) * vdot(zdes,z_w);
-  struct vec omega_des = mkvec(-vdot(hw,ydes), vdot(hw,xdes), desiredYawRate);
+  float c = control->thrustSi / self->mass;
+  float B1 = c;
+  float B3 = -vdot(yc, zb);
+  float C3 = vmag(vcross(yc, zb));
+  float D1 = vdot(xb, desJerk);
+  float D2 = -vdot(yb, desJerk);
+  float D3 = radians(setpoint->attitudeRate.yaw) * vdot(xc, xb);
   
+  struct vec omega_des = vzero();
+  if (control->thrustSi != 0) {
+    omega_des.x = D2/B1;
+    omega_des.y = D1/B1;
+    omega_des.z = (B1*D3-B3*D1)/(B1*C3);
+  }
+
+  // Compute desired omega dot
+  float setpoint_yaw_ddot = radians(setpoint->attitudeAcc.yaw);
+  float setpoint_yaw_dot = radians(setpoint->attitudeRate.yaw);
+
+  struct vec desSnap = mkvec(setpoint->snap.x, setpoint->snap.y, setpoint->snap.z);
+  float c_dot = vdot(zb, desJerk);
+  float E1 = vdot(xb,desSnap) - 2.0f * c_dot * omega_des.y - c * omega_des.x * omega_des.z;
+  float E2 = -vdot(yb,desSnap) - 2.0f * c_dot * omega_des.x + c * omega_des.y * omega_des.z;
+  float E3 = setpoint_yaw_ddot * vdot(xc, xb) + 2.0f * setpoint_yaw_dot * omega_des.z * vdot(xc, yb) - 2.0f * setpoint_yaw_dot*omega_des.y*vdot(xc,zb) - omega_des.x*omega_des.y*vdot(yc,yb) - omega_des.x*omega_des.z*vdot(yc,zb);
+
+  struct vec omega_des_dot = vzero();
+  if (control->thrustSi != 0) {
+    omega_des_dot.x = E2/B1;
+    omega_des_dot.y = E1/B1;
+    omega_des_dot.z = (B1*E3-B3*E1)/(B1*C3);
+  }
+
+
   self->omega_r = mvmul(mmul(mtranspose(R), self->R_des), omega_des);
 
   struct vec omega_error = vsub(self->omega, self->omega_r);
@@ -242,11 +251,12 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
 
   // compute moments
   // M = -kR eR - kw ew + w x Jw - J(w x wr)
-  self->u = vadd4(
+  self->u = vadd5(
     vneg(veltmul(self->KR, eR)),
     vneg(veltmul(self->Komega, omega_error)),
     vneg(veltmul(self->KI, self->i_error_att)),
-    vcross(self->omega, veltmul(self->J, self->omega)));
+    vcross(self->omega, veltmul(self->J, self->omega)),
+    vneg(veltmul(self->J, vsub(mvmul(mcrossmat(self->omega), self->omega_r), mvmul(mmul(mtranspose(R), self->R_des), omega_des_dot)))));
 
   control->controlMode = controlModeForceTorque;
   control->torque[0] = self->u.x;
