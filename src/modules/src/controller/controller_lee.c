@@ -234,11 +234,11 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
   float E2 = -vdot(yb,desSnap) - 2.0f * c_dot * omega_des.x + c * omega_des.y * omega_des.z;
   float E3 = setpoint_yaw_ddot * vdot(xc, xb) + 2.0f * setpoint_yaw_dot * omega_des.z * vdot(xc, yb) - 2.0f * setpoint_yaw_dot*omega_des.y*vdot(xc,zb) - omega_des.x*omega_des.y*vdot(yc,yb) - omega_des.x*omega_des.z*vdot(yc,zb);
 
-  struct vec omega_des_dot = vzero();
+  self->omega_des_dot = vzero();
   if (control->thrustSi != 0) {
-    omega_des_dot.x = E2/B1;
-    omega_des_dot.y = E1/B1;
-    omega_des_dot.z = (B1*E3-B3*E1)/(B1*C3);
+    self->omega_des_dot.x = E2/B1;
+    self->omega_des_dot.y = E1/B1;
+    self->omega_des_dot.z = (B1*E3-B3*E1)/(B1*C3);
   }
 
 
@@ -256,7 +256,7 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     vneg(veltmul(self->Komega, omega_error)),
     vneg(veltmul(self->KI, self->i_error_att)),
     vcross(self->omega, veltmul(self->J, self->omega)),
-    vneg(veltmul(self->J, vsub(mvmul(mcrossmat(self->omega), self->omega_r), mvmul(mmul(mtranspose(R), self->R_des), omega_des_dot)))));
+    vneg(veltmul(self->J, vsub(mvmul(mcrossmat(self->omega), self->omega_r), mvmul(mmul(mtranspose(R), self->R_des), self->omega_des_dot)))));
 
   control->controlMode = controlModeForceTorque;
   control->torque[0] = self->u.x;
@@ -377,6 +377,11 @@ LOG_ADD(LOG_FLOAT, omegaz, &g_self.omega.z)
 LOG_ADD(LOG_FLOAT, omegarx, &g_self.omega_r.x)
 LOG_ADD(LOG_FLOAT, omegary, &g_self.omega_r.y)
 LOG_ADD(LOG_FLOAT, omegarz, &g_self.omega_r.z)
+
+// omega_des_dot
+LOG_ADD(LOG_FLOAT, omegaddx, &g_self.omega_des_dot.x)
+LOG_ADD(LOG_FLOAT, omegaddy, &g_self.omega_des_dot.y)
+LOG_ADD(LOG_FLOAT, omegaddz, &g_self.omega_des_dot.z)
 
 // LOG_ADD(LOG_UINT32, ticks, &ticks)
 
