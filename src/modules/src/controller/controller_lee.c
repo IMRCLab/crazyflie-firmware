@@ -284,7 +284,7 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
       a_nn.y = self->nn_output[1] / self->mass;
     }
     // add NN to position controller
-    a_d = vadd(a_d, a_nn);
+    a_d = vsub(a_d, a_nn);
     // INDI
     struct vec a_indi = vzero();
     if ((self->indi & 1) && rpm_deck_available) {
@@ -447,6 +447,7 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     self->timestamp_prev = timestamp;
 
     indi_moments = vsub(self->tau_rpm_filtered, self->tau_gyro_filtered);
+    indi_moments.z = 0.0f; // TODO: DEBUGGING ONLY DELETE
     self->u = vadd(self->u, indi_moments);
 
     // // DEBUG
