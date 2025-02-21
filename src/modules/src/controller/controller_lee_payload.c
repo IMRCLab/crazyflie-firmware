@@ -1701,7 +1701,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       self->input_vec[9] = self->R.m[1][1];
       self->input_vec[10] = self->R.m[2][0];
       self->input_vec[11] = self->R.m[2][1];
-      const float *model_output = nn_forward_payload(self->input_vec);
+      const float *model_output = nn_forward(self->input_vec);
       self->nn_output[0] = model_output[0];
       self->nn_output[1] = model_output[1];
     
