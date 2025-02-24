@@ -30,6 +30,8 @@ TODO
 
 #include <math.h>
 #include <string.h>
+#include <motors.h>
+
 #include "math3d.h"
 #include "controller_lee_payload.h"
 #include "stdio.h"
@@ -1685,35 +1687,49 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     self->rpy = quat2rpy(self->q);
     self->R = quat2rotmat(self->q);
 
-    if (self->use_nn) { 
-      float start_time = usecTimestamp();
-      // Acceleration ang gyroscope sensor readings
-      self->input_vec[0] = sensors->acc.x;
-      self->input_vec[1] = sensors->acc.y;
-      self->input_vec[2] = sensors->acc.z;
-      self->input_vec[3] = sensors->gyro.x;
-      self->input_vec[4] = sensors->gyro.y;
-      self->input_vec[5] = sensors->gyro.z;
+    if (self->use_nn)
+    {
       // First two columns of the rotation matrix
-      self->input_vec[6] = self->R.m[0][0];
-      self->input_vec[7] = self->R.m[0][1];
-      self->input_vec[8] = self->R.m[1][0];
-      self->input_vec[9] = self->R.m[1][1];
-      self->input_vec[10] = self->R.m[2][0];
-      self->input_vec[11] = self->R.m[2][1];
+      self->input_vec[0] = self->R.m[0][0];
+      self->input_vec[1] = self->R.m[0][1];
+      self->input_vec[2] = self->R.m[1][0];
+      self->input_vec[3] = self->R.m[1][1];
+      self->input_vec[4] = self->R.m[2][0];
+      self->input_vec[5] = self->R.m[2][1];
+      // State estimate acceleration
+      self->input_vec[6] = state->acc.x * 9.81f;
+      self->input_vec[7] = state->acc.y * 9.81f;
+      self->input_vec[8] = (state->acc.z + 1.f) * 9.81f;
+      // State estimate velocities
+      self->input_vec[9] = state->velocity.x;
+      self->input_vec[10] = state->velocity.y;
+      self->input_vec[11] = state->velocity.z;
+      // Gyroscope sensor readings
+      self->input_vec[12] = radians(sensors->gyro.x);
+      self->input_vec[13] = radians(sensors->gyro.y);
+      self->input_vec[14] = radians(sensors->gyro.z);
+      // Motor power
+      self->input_vec[15] = motorsGetRatio(0) / 10000.f;
+      self->input_vec[16] = motorsGetRatio(1) / 10000.f;
+      self->input_vec[17] = motorsGetRatio(2) / 10000.f;
+      self->input_vec[18] = motorsGetRatio(3) / 10000.f;
+
       const float *model_output = nn_forward(self->input_vec);
       self->nn_output[0] = model_output[0];
       self->nn_output[1] = model_output[1];
-    
-      float end_time = usecTimestamp();
-      float elapsed_time = end_time - start_time;
-      nn_inference_time_payload = elapsed_time; // Microseconds
+      self->nn_output[2] = model_output[2];
+      self->nn_output[3] = model_output[3];
+      self->nn_output[4] = model_output[4];
+      self->nn_output[5] = model_output[5];
     }
 
     struct vec a_nn = vzero();
-    if (self->use_nn) {
+    if (self->use_nn & 1) {
       a_nn.x = self->nn_output[0] / self->mass;
       a_nn.y = self->nn_output[1] / self->mass;
+    }
+    if (self->use_nn & 2) {
+      a_nn.z = self->nn_output[2] / self->mass;
     }
 
     // INDI
@@ -1878,7 +1894,14 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
   //   u = vsub(u, tau_a);
   // }
 
+  struct vec u_nn = vzero();
+  if (self->use_nn & 4) {
+    u_nn.x = self->nn_output[3];
+    u_nn.y = self->nn_output[4];
+    u_nn.z = self->nn_output[5];
+  }
 
+  self->u = vadd(self->u, u_nn);
 
   struct vec indi_moments;
   if ((self->indi & 2) && rpm_deck_available) {
@@ -1889,6 +1912,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       -arm * t1 + arm * t2 + arm * t3 - arm * t4,
       -t2t * t1 + t2t * t2 - t2t * t3 + t2t * t4
     );
+    self->tau_rpm = vsub(self->tau_rpm, u_nn);
     update_butterworth_2_low_pass_vec(filter_tau_rpm, self->tau_rpm);
 
     self->tau_rpm_filtered = get_butterworth_2_low_pass_vec(filter_tau_rpm);

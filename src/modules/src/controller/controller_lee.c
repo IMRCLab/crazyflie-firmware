@@ -242,7 +242,7 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     struct mat33 R = quat2rotmat(q);
     struct vec z  = vbasis(2);
 
-    if (self->use_nn) { 
+    if (self->use_nn) {
       
       float start_time = usecTimestamp();
 
