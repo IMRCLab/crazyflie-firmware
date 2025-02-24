@@ -78,8 +78,8 @@ static float pwmToThrustA = 0.091492681f;
 static float pwmToThrustB = 0.067673604f;
 
 // pwm_normalized = rpm2pwmA + b * rpm
-static float rpm2pwmA = -0.12128823778162669f;
-static float rpm2pwmB = 4.2310782971594264e-05f;
+float rpm2pwmA = -0.12128823778162669f;
+float rpm2pwmB = 4.2310782971594264e-05f;
 float kappa_f[4]; // force[i] = kappa_f[i] * rpm^2
 
 static float motorForces[STABILIZER_NR_OF_MOTORS];

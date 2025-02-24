@@ -94,6 +94,8 @@ static Butterworth2LowPass filter_acc_imu[3];
 static Butterworth2LowPass filter_tau_rpm[3];
 static Butterworth2LowPass filter_angular_acc[3];
 
+extern float rpm2pwmA;
+extern float rpm2pwmB;
 extern float kappa_f[4];
 
 static inline struct vec vclampscl(struct vec value, float min, float max) {
@@ -201,16 +203,33 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
   // INDI
   float t1 = 0.0f, t2 = 0.0f, t3 = 0.0f, t4 = 0.0f;
   if (self->indi && rpm_deck_available) {
-    // compute expected acceleration based on rpm measurements (world frame)
-    uint16_t rpm1 = logGetUint(logVarRpm1);
-    uint16_t rpm2 = logGetUint(logVarRpm2);
-    uint16_t rpm3 = logGetUint(logVarRpm3);
-    uint16_t rpm4 = logGetUint(logVarRpm4);
 
-    t1 = kappa_f[0] * powf(rpm1, 2);
-    t2 = kappa_f[1] * powf(rpm2, 2);
-    t3 = kappa_f[2] * powf(rpm3, 2);
-    t4 = kappa_f[3] * powf(rpm4, 2);
+    uint16_t rpm[4];
+
+    if (self-> indi & 4) {
+      // compute force based on PWM measurements
+
+      // pwm_normalized = rpm2pwmA + b * rpm
+      // rpm = (pwm_normalized - rpm2pwmA) / rpm2pwmB
+
+      for (int i = 0; i < 4; ++i) {
+        float pwm_normalized = motorsGetRatio(i) / 65535.0f;
+        rpm[i] = (pwm_normalized - rpm2pwmA) / rpm2pwmB;
+      }
+
+
+    } else {
+      // compute force based on RPM measurements
+      rpm[0] = logGetUint(logVarRpm1);
+      rpm[1] = logGetUint(logVarRpm2);
+      rpm[2] = logGetUint(logVarRpm3);
+      rpm[3] = logGetUint(logVarRpm4);
+    }
+
+    t1 = kappa_f[0] * powf(rpm[0], 2);
+    t2 = kappa_f[1] * powf(rpm[1], 2);
+    t3 = kappa_f[2] * powf(rpm[2], 2);
+    t4 = kappa_f[3] * powf(rpm[3], 2);
 
     // // DEBUG
     // if (tick % 500 == 0) {
