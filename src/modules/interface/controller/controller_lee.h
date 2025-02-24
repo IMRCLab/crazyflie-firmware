@@ -74,7 +74,7 @@ typedef struct controllerLee_s {
 
     // Neural network
     uint8_t use_nn;
-    float input_vec[12];
+    float input_vec[19];
     float nn_output[6];
     
 } controllerLee_t;

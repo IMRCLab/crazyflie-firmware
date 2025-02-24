@@ -36,6 +36,7 @@ CDC 2010
 
 #include <math.h>
 #include <string.h>
+#include <motors.h>
 
 #include "log.h"
 #include "param.h"
@@ -126,11 +127,6 @@ void controllerLeeInit(controllerLee_t* self)
   // copy default values (bindings), or NOP (firmware)
   *self = g_self;
 
-  // #if USE_NN
-  //   DEBUG_PRINT("Using Neural Network\n");
-  // #else
-  //   DEBUG_PRINT("Using standard lee controller\n");
-  // #endif
   if (self->use_nn) {
     DEBUG_PRINT("Using Neural Network\n");
   } else {
@@ -247,29 +243,45 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     struct vec z  = vbasis(2);
 
     if (self->use_nn) { 
+      
       float start_time = usecTimestamp();
-      // Acceleration ang gyroscope sensor readings
-      self->input_vec[0] = sensors->acc.x;
-      self->input_vec[1] = sensors->acc.y;
-      self->input_vec[2] = sensors->acc.z;
-      self->input_vec[3] = sensors->gyro.x;
-      self->input_vec[4] = sensors->gyro.y;
-      self->input_vec[5] = sensors->gyro.z;
+
       // First two columns of the rotation matrix
-      self->input_vec[6] = R.m[0][0];
-      self->input_vec[7] = R.m[0][1];
-      self->input_vec[8] = R.m[1][0];
-      self->input_vec[9] = R.m[1][1];
-      self->input_vec[10] = R.m[2][0];
-      self->input_vec[11] = R.m[2][1];
+      self->input_vec[0] = R.m[0][0];
+      self->input_vec[1] = R.m[0][1];
+      self->input_vec[2] = R.m[1][0];
+      self->input_vec[3] = R.m[1][1];
+      self->input_vec[4] = R.m[2][0];
+      self->input_vec[5] = R.m[2][1];
+      // State estimate acceleration
+      self->input_vec[6] = state->acc.x * 9.81f;
+      self->input_vec[7] = state->acc.y * 9.81f;
+      self->input_vec[8] = (state->acc.z + 1.f) * 9.81f;
+      // State estimate velocities
+      self->input_vec[9] = state->velocity.x;
+      self->input_vec[10] = state->velocity.y;
+      self->input_vec[11] = state->velocity.z;
+      // Gyroscope sensor readings
+      self->input_vec[12] = radians(sensors->gyro.x);
+      self->input_vec[13] = radians(sensors->gyro.y);
+      self->input_vec[14] = radians(sensors->gyro.z);
+      // Motor power
+      self->input_vec[15] = motorsGetRatio(0) / 10000.f;
+      self->input_vec[16] = motorsGetRatio(1) / 10000.f;
+      self->input_vec[17] = motorsGetRatio(2) / 10000.f;
+      self->input_vec[18] = motorsGetRatio(3) / 10000.f;
+
       const float *model_output = nn_forward(self->input_vec);
       self->nn_output[0] = model_output[0];
       self->nn_output[1] = model_output[1];
+      self->nn_output[2] = model_output[2];
+      self->nn_output[3] = model_output[3];
+      self->nn_output[4] = model_output[4];
+      self->nn_output[5] = model_output[5];
     
       float end_time = usecTimestamp();
       float elapsed_time = end_time - start_time;
       nn_inference_time = elapsed_time; // Microseconds
-
     }
     // desired acceleration
     struct vec a_d = vadd4(
@@ -279,19 +291,23 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
       veltmul(self->Kpos_I, self->i_error_pos));
 
     struct vec a_nn = vzero();
-    if (self->use_nn) {
+    if (self->use_nn & 1) {
       a_nn.x = self->nn_output[0] / self->mass;
       a_nn.y = self->nn_output[1] / self->mass;
     }
+    if (self->use_nn & 2) {
+      a_nn.z = self->nn_output[2] / self->mass;
+    }
     // add NN to position controller
-    a_d = vsub(a_d, a_nn);
+    a_d = vadd(a_d, a_nn);
     // INDI
     struct vec a_indi = vzero();
     if ((self->indi & 1) && rpm_deck_available) {
 
       float f_rpm = t1 + t2 + t3 + t4;
       // add nn to a_rpm
-      self->a_rpm = vadd(vsub(vscl(f_rpm / self->mass, mvmul(R, z)), mkvec(0.0, 0.0, 9.81f)), a_nn);
+      self->a_rpm = vsub(vsub(vscl(f_rpm / self->mass, mvmul(R, z)), mkvec(0.0, 0.0, 9.81f)), a_nn);
+      // self->a_rpm = vsub(vscl(f_rpm / self->mass, mvmul(R, z)), mkvec(0.0, 0.0, 9.81f));
       update_butterworth_2_low_pass_vec(filter_acc_rpm, self->a_rpm);
 
       // compute acceleration based on IMU (world frame, SI unit, no gravity)
@@ -419,6 +435,15 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     vcross(self->omega, veltmul(self->J, self->omega)),
     vneg(veltmul(self->J, vsub(mvmul(mcrossmat(self->omega), self->omega_r), mvmul(mmul(mtranspose(R), self->R_des), self->omega_des_dot)))));
 
+  struct vec u_nn = vzero();
+  if (self->use_nn & 4) {
+    u_nn.x = self->nn_output[3];
+    u_nn.y = self->nn_output[4];
+    u_nn.z = self->nn_output[5];
+  }
+
+  self->u = vadd(self->u, u_nn);
+
   struct vec indi_moments;
   if ((self->indi & 2) && rpm_deck_available) {
     const float t2t = 0.006f;
@@ -428,6 +453,7 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
       -arm * t1 + arm * t2 + arm * t3 - arm * t4,
       -t2t * t1 + t2t * t2 - t2t * t3 + t2t * t4
     );
+    self->tau_rpm = vsub(self->tau_rpm, u_nn);
     update_butterworth_2_low_pass_vec(filter_tau_rpm, self->tau_rpm);
 
     self->tau_rpm_filtered = get_butterworth_2_low_pass_vec(filter_tau_rpm);
@@ -447,7 +473,7 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     self->timestamp_prev = timestamp;
 
     indi_moments = vsub(self->tau_rpm_filtered, self->tau_gyro_filtered);
-    indi_moments.z = 0.0f; // TODO: DEBUGGING ONLY DELETE
+    indi_moments.z = 0.0f;
     self->u = vadd(self->u, indi_moments);
 
     // // DEBUG
@@ -476,18 +502,25 @@ LOG_ADD(LOG_FLOAT, tau_y, &g_self.nn_output[4])
 LOG_ADD(LOG_FLOAT, tau_z, &g_self.nn_output[5])
 LOG_GROUP_STOP(nn_output)
 LOG_GROUP_START(nn_input)
-LOG_ADD(LOG_FLOAT, se_acc_x, &g_self.input_vec[0])
-LOG_ADD(LOG_FLOAT, se_acc_y, &g_self.input_vec[1])
-LOG_ADD(LOG_FLOAT, se_acc_z, &g_self.input_vec[2])
-LOG_ADD(LOG_FLOAT, gyro_x, &g_self.input_vec[3])
-LOG_ADD(LOG_FLOAT, gyro_y, &g_self.input_vec[4])
-LOG_ADD(LOG_FLOAT, gyro_z, &g_self.input_vec[5])
-LOG_ADD(LOG_FLOAT, se_r_0, &g_self.input_vec[6])
-LOG_ADD(LOG_FLOAT, se_r_1, &g_self.input_vec[7])
-LOG_ADD(LOG_FLOAT, se_r_2, &g_self.input_vec[8])
-LOG_ADD(LOG_FLOAT, se_r_3, &g_self.input_vec[9])
-LOG_ADD(LOG_FLOAT, se_r_4, &g_self.input_vec[10])
-LOG_ADD(LOG_FLOAT, se_r_5, &g_self.input_vec[11])
+LOG_ADD(LOG_FLOAT, i0, &g_self.input_vec[0])
+LOG_ADD(LOG_FLOAT, i1, &g_self.input_vec[1])
+LOG_ADD(LOG_FLOAT, i2, &g_self.input_vec[2])
+LOG_ADD(LOG_FLOAT, i3, &g_self.input_vec[3])
+LOG_ADD(LOG_FLOAT, i4, &g_self.input_vec[4])
+LOG_ADD(LOG_FLOAT, i5, &g_self.input_vec[5])
+LOG_ADD(LOG_FLOAT, i6, &g_self.input_vec[6])
+LOG_ADD(LOG_FLOAT, i7, &g_self.input_vec[7])
+LOG_ADD(LOG_FLOAT, i8, &g_self.input_vec[8])
+LOG_ADD(LOG_FLOAT, i9, &g_self.input_vec[9])
+LOG_ADD(LOG_FLOAT, i10, &g_self.input_vec[10])
+LOG_ADD(LOG_FLOAT, i11, &g_self.input_vec[11])
+LOG_ADD(LOG_FLOAT, i12, &g_self.input_vec[12])
+LOG_ADD(LOG_FLOAT, i13, &g_self.input_vec[13])
+LOG_ADD(LOG_FLOAT, i14, &g_self.input_vec[14])
+LOG_ADD(LOG_FLOAT, i15, &g_self.input_vec[15])
+LOG_ADD(LOG_FLOAT, i16, &g_self.input_vec[16])
+LOG_ADD(LOG_FLOAT, i17, &g_self.input_vec[17])
+LOG_ADD(LOG_FLOAT, i18, &g_self.input_vec[18])
 LOG_GROUP_STOP(nn_input)
 
 #ifdef CRAZYFLIE_FW
