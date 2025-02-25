@@ -1,11 +1,19 @@
 #include "nn_utils.h"
 
 
-static float relu(float num) {
+static float ReLU(float num) {
 	if (num > 0) {
 		return num;
 	} else {
 		return 0;
+	}
+}
+
+static float LeakyReLU(float num) {
+	if (num > 0) {
+		return num;
+	} else {
+		return num * 0.01f;
 	}
 }
 
@@ -18,7 +26,10 @@ void layer(int rows, int cols, float in[rows], float layer_weight[rows][cols], f
 		}
 		output[ii] += layer_bias[ii];
 		if (use_activation == 1) {
-			output[ii] = relu(output[ii]);
+			output[ii] = ReLU(output[ii]);
+		} else if (use_activation == 2) {
+			output[ii] = LeakyReLU(output[ii]);
 		}
+		
 	}
 }
