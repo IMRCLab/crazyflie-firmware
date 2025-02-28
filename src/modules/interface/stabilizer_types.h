@@ -70,6 +70,7 @@ typedef struct vec3_s velocity_t;
 typedef struct vec3_s acc_t;
 typedef struct vec3_s jerk_t;
 typedef struct vec3_s snap_t;
+typedef struct vec3_s snapd_t;
 
 /* Orientation as a quaternion */
 typedef struct quaternion_s {
@@ -303,6 +304,7 @@ typedef struct setpoint_s {
   acc_t acceleration;       // m/s^2
   jerk_t jerk;              // m/s^3
   snap_t snap;              // m/s^4
+  snapd_t snapd;              // m/s^5
   bool velocity_body;       // true if velocity is given in body frame; false if velocity is given in world frame
 
   struct {

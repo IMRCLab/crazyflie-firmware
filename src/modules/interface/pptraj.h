@@ -122,6 +122,7 @@ struct traj_eval
 	struct vec acc;
 	struct vec jerk;
 	struct vec snap;
+	struct vec snapd;
 	float yaw; //rad
 	float yaw_dot; // rad/s
 	float yaw_ddot; // rad/s^2

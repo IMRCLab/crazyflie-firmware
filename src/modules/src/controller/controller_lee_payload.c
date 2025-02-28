@@ -1380,14 +1380,21 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
 
 
   // Position controller
+  /*
   if (   setpoint->mode.x == modeAbs
       || setpoint->mode.y == modeAbs
       || setpoint->mode.z == modeAbs) {  
-    
-    struct vec plPos_d = mkvec(setpoint->position.x, setpoint->position.y, setpoint->position.z);
-    struct vec plVel_d = mkvec(setpoint->velocity.x, setpoint->velocity.y, setpoint->velocity.z);
-    struct vec plAcc_d = mkvec(setpoint->acceleration.x, setpoint->acceleration.y, setpoint->acceleration.z + GRAVITY_MAGNITUDE);
-    struct vec plJerk_d = mkvec(setpoint->jerk.x, setpoint->jerk.y, setpoint->jerk.z);
+    */
+   struct vec plPos_d = mkvec(setpoint->position.x, setpoint->position.y, setpoint->position.z);
+   struct vec plVel_d = mkvec(setpoint->velocity.x, setpoint->velocity.y, setpoint->velocity.z);
+   struct vec plAcc_d = mkvec(setpoint->acceleration.x, setpoint->acceleration.y, setpoint->acceleration.z + GRAVITY_MAGNITUDE);
+   struct vec plJerk_d = mkvec(setpoint->jerk.x, setpoint->jerk.y, setpoint->jerk.z);
+   struct vec plSnap_d = mkvec(setpoint->snap.x, setpoint->snap.y, setpoint->snap.z);
+   struct vec plSnapd_d = mkvec(setpoint->snapd.x, setpoint->snapd.y, setpoint->snapd.z);
+ 
+   float desiredYawUAV = 0.0f;
+   struct vec xc = mkvec(cosf(desiredYawUAV), sinf(desiredYawUAV), 0);
+   struct vec yc = mkvec(-sinf(desiredYawUAV), cosf(desiredYawUAV), 0);
 
     struct vec statePos = mkvec(state->position.x, state->position.y, state->position.z);
     struct vec stateVel = mkvec(state->velocity.x, state->velocity.y, state->velocity.z);
@@ -1507,7 +1514,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     } else if (setpoint->mode.quat == modeAbs) {
       self->qp_des = mkquat(setpoint->attitudeQuaternion.x, setpoint->attitudeQuaternion.y, setpoint->attitudeQuaternion.z, setpoint->attitudeQuaternion.w);
     }
-  
+ 
     struct mat33 Rp_des = quat2rotmat(self->qp_des); 
     // define orientation error     
     // eRp =  msub(mmul(mtranspose(self->R_des), self->R), mmul(mtranspose(self->R), self->R_des));
@@ -1855,6 +1862,8 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     xdes = vcross(ydes, zdes);
     
     self->R_des = mcolumns(xdes, ydes, zdes);
+ 
+ /*
   } else {
     // DEBUG_PRINT("R2\n");
     // we only support position control
@@ -1866,7 +1875,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     controllerLeePayloadReset(self);
     return;
   }
-
+*/
   // Attitude controller
 
   // current rotation [R]
@@ -1890,39 +1899,64 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     radians(sensors->gyro.z));
 
   // Compute desired omega
-  if (self->en_num_omega) {
-    if (self->desVirtInp_tick != self->prev_q_tick) {
-      float q_dt = (self->desVirtInp_tick - self->prev_q_tick) / 1000.0f;
-      self->omega_r = quat2omega(self->prev_q_des, q_des, q_dt);
+  struct vec xb = mcolumn(self->R_des, 0);
+  struct vec yb = mcolumn(self->R_des, 1);
+  struct vec zb = mcolumn(self->R_des, 2);
+  
+  // compute desJerk from UAV perspective:
+  // desJerk = plJerk_d - l * qi-dddot
 
-      // static int counter = 0;
-      // if (counter % 100 == 0) {
-      // DEBUG_PRINT("or %f %f %f %f\n", (double)q_dt, (double)self->omega_r.x, (double)self->omega_r.y, (double)self->omega_r.z);
-      // } 
-      // ++ counter;
-      self->prev_q_des = q_des;
-      self->prev_q_tick = self->desVirtInp_tick;
-    }
-  } else {
-    struct vec xdes = mcolumn(self->R_des, 0);
-    struct vec ydes = mcolumn(self->R_des, 1);
-    struct vec zdes = mcolumn(self->R_des, 2);
-    struct vec hw = vzero();
-    // Desired Jerk and snap for now are zeros vector
-    // struct vec desJerk = mkvec(setpoint->jerk.x, setpoint->jerk.y, setpoint->jerk.z);
-    struct vec desJerk = vzero();
+  // Tang, Appendix B
+  struct vec desJerk = vzero();
+  {
+    float T_des = vmag(self->desVirtInp);
+    struct vec q_des = self->qdi;
+    struct vec q_des_dot = self->qdidot;
 
-    if (control->thrustSi != 0) {
-      struct vec tmp = vsub(desJerk, vscl(vdot(zdes, desJerk), zdes));
-      hw = vscl(self->mass/control->thrustSi, tmp);
-    }
+    float T_des_dot = -self->mp * vdot(plJerk_d, q_des);
+    float T_des_ddot = -self->mp * (vdot(plSnap_d, q_des) + vdot(plJerk_d, q_des_dot));
+    struct vec q_des_ddot = vdiv(vneg(vadd3(vscl(self->mp, plSnap_d), vscl(2.0f*T_des_dot, q_des_dot), vscl(T_des_ddot, q_des))), T_des);
 
-    struct vec z_w = mkvec(0, 0, 1);
-    float desiredYawRate = radians(setpoint->attitudeRate.yaw) * vdot(zdes, z_w);
-    struct vec omega_des = mkvec(-vdot(hw,ydes), vdot(hw,xdes), desiredYawRate);
-    self->omega_r = mvmul(mmul(mtranspose(self->R), self->R_des), omega_des);
+    float T_des_dddot = -self->mp * (vdot(plSnapd_d, q_des) + 2.0f * vdot(plSnap_d, q_des_dot) + vdot(plJerk_d, q_des_ddot));
+    struct vec q_des_dddot = vdiv(vneg(vadd4(vscl(self->mp, plSnapd_d), vscl(3.0f*T_des_ddot, q_des_dot), vscl(3.0f * T_des_dot, q_des_ddot), vscl(T_des_dddot, q_des))), T_des);
+    
+    desJerk = vsub(plJerk_d, vscl(l, q_des_dddot));
   }
 
+  float c = control->thrustSi / self->mass;
+  float B1 = c;
+  float B3 = -vdot(yc, zb);
+  float C3 = vmag(vcross(yc, zb));
+  float D1 = vdot(xb, desJerk);
+  float D2 = -vdot(yb, desJerk);
+  float D3 = radians(setpoint->attitudeRate.yaw) * vdot(xc, xb);
+  
+  struct vec omega_des = vzero();
+  if (control->thrustSi != 0) {
+    omega_des.x = D2/B1;
+    omega_des.y = D1/B1;
+    omega_des.z = (B1*D3-B3*D1)/(B1*C3);
+  }
+
+  // // Compute desired omega dot
+  // float setpoint_yaw_ddot = radians(setpoint->attitudeAcc.yaw);
+  // float setpoint_yaw_dot = radians(setpoint->attitudeRate.yaw);
+
+  // struct vec desSnap = mkvec(setpoint->snap.x, setpoint->snap.y, setpoint->snap.z);
+  // float c_dot = vdot(zb, desJerk);
+  // float E1 = vdot(xb,desSnap) - 2.0f * c_dot * omega_des.y - c * omega_des.x * omega_des.z;
+  // float E2 = -vdot(yb,desSnap) - 2.0f * c_dot * omega_des.x + c * omega_des.y * omega_des.z;
+  // float E3 = setpoint_yaw_ddot * vdot(xc, xb) + 2.0f * setpoint_yaw_dot * omega_des.z * vdot(xc, yb) - 2.0f * setpoint_yaw_dot*omega_des.y*vdot(xc,zb) - omega_des.x*omega_des.y*vdot(yc,yb) - omega_des.x*omega_des.z*vdot(yc,zb);
+
+  self->omega_des_dot = vzero();
+  // if (control->thrustSi != 0) {
+  //   self->omega_des_dot.x = E2/B1;
+  //   self->omega_des_dot.y = E1/B1;
+  //   self->omega_des_dot.z = (B1*E3-B3*E1)/(B1*C3);
+  // }
+
+
+  self->omega_r = mvmul(mmul(mtranspose(self->R), self->R_des), omega_des);
 
   struct vec omega_error = vsub(self->omega, self->omega_r);
   
@@ -1931,15 +1965,12 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
 
   // compute moments
   // M = -kR eR - kw ew + w x Jw - J(w x wr)
-  self->u = vadd4(
-    vneg(veltmul(self->KR, vclampnorm(eR, self->KR_limit))),
-    vneg(veltmul(self->Komega, vclampnorm(omega_error, self->Komega_limit))),
+  self->u = vadd5(
+    vneg(veltmul(self->KR, eR)),
+    vneg(veltmul(self->Komega, omega_error)),
     vneg(veltmul(self->KI, self->i_error_att)),
-    vcross(self->omega, veltmul(self->J, self->omega)));
-
-  // if (enableNN > 1) {
-  //   u = vsub(u, tau_a);
-  // }
+    vcross(self->omega, veltmul(self->J, self->omega)),
+    vneg(veltmul(self->J, vsub(mvmul(mcrossmat(self->omega), self->omega_r), mvmul(mmul(mtranspose(self->R), self->R_des), self->omega_des_dot)))));
 
   struct vec u_nn = vzero();
   if (self->use_nn & 2) {
@@ -1979,13 +2010,14 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
 
     indi_moments = vsub(self->tau_imu_filtered, self->tau_rpm_filtered);
     // indi_moments.z = 0.0f;
+    // self->u = vsub(self->u, indi_moments);
+
     // // DEBUG
     // if (tick % 1000 == 0) {
     //   DEBUG_PRINT("INDI a %f %f %f, %f %f %f\n", (double)self->tau_rpm_filtered.x, (double)self->tau_rpm_filtered.y, (double)self->tau_rpm_filtered.z, (double)self->tau_imu_filtered.x, (double)self->tau_imu_filtered.y, (double)self->tau_imu_filtered.z);
     // }
   }
   self->u = vsub2(self->u, indi_moments, u_nn);
-  // self->u = vadd3(self->u, indi_moments, u_nn);
   control->controlMode = controlModeForceTorque;
   control->torque[0] = self->u.x;
   control->torque[1] = self->u.y;

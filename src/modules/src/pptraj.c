@@ -273,6 +273,7 @@ struct traj_eval traj_eval_zero()
 		.acc = vzero(),
 		.jerk = vzero(),
 		.snap = vzero(),
+		.snapd = vzero(),
 		.yaw = 0.0f,
 		.yaw_dot = 0.0f,
 		.yaw_ddot = 0.0f,
@@ -319,6 +320,10 @@ struct traj_eval poly4d_eval(struct poly4d const *p, float t)
 	polyder4d(deriv);
 	out.snap = polyval_xyz(deriv, t);
 
+	// 5th derivative
+	polyder4d(deriv);
+	out.snapd = polyval_xyz(deriv, t);
+
 	return out;
 }
 
@@ -351,6 +356,7 @@ struct traj_eval piecewise_eval(
 	ev.acc = vzero();
 	ev.jerk = vzero();
 	ev.snap = vzero();
+	ev.snapd = vzero();
 	ev.yaw = 0.0f;
 	ev.yaw_dot = 0.0f;
 	ev.yaw_ddot = 0.0f;
@@ -385,6 +391,7 @@ struct traj_eval piecewise_eval_reversed(
 	ev.acc = vzero();
 	ev.jerk = vzero();
 	ev.snap = vzero();
+	ev.snapd = vzero();
 	ev.yaw = 0.0f;
 	ev.yaw_dot = 0.0f;
 	ev.yaw_ddot = 0.0f;
