@@ -1552,14 +1552,15 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
 
       self->payload_vel_prev = plStVel;
       self->timestamp_payload_prev = timestamp_payload;
-    } 
-      self->tension = vdot(vscl(-self->mp, acc_), self->qi);
+    }
+    self->tension = self->mp * vmag(acc_); 
+      // self->tension = vdot(vscl(-self->mp, acc_), self->qi);
       // acc_ = vscl(-self->tension/self->mp, self->qi);
       // acc_ = plAcc_d;
       self->plAcc_filtered = acc_;
 
     // INDI
-    struct vec f_indi = vzero();
+    // struct vec f_indi = vzero();
     // struct vec e3 = mkvec(0,0,1);
     // if ((self->indi & 1) && rpm_deck_available) {
 
@@ -1589,13 +1590,13 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     //   }
     // }
 
-
+    struct vec f_indi_payload = vadd(vscl(self->mp, acc_), vscl(self->tension, self->qi));
     self->F_d = vsub(vscl(self->mp ,vadd5(
           veltmul(self->Kpos_A, vsub(plAcc_d, acc_)),
           plAcc_d,
           veltmul(self->Kpos_P, plpos_e),
           veltmul(self->Kpos_D, plvel_e),
-          veltmul(self->Kpos_I, self->i_error_pos))), f_indi);
+          veltmul(self->Kpos_I, self->i_error_pos))), f_indi_payload);
 
     if (state->num_uavs > 1) {
       computeDesiredVirtualInput(self, state, setpoint, self->F_d, self->M_d, tick, &self->desVirtInp, &self->desVirtInp_tick);
