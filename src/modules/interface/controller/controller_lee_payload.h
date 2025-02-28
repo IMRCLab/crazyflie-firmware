@@ -48,6 +48,8 @@ typedef struct controllerLeePayload_s {
     } Pinvs[MAX_TEAM_SIZE];
     
     //Position PID
+    struct vec Kpos_A;
+    float Kpos_A_limit;
     struct vec Kpos_P;
     float Kpos_P_limit;
     struct vec Kpos_D;
@@ -187,8 +189,8 @@ typedef struct controllerLeePayload_s {
     float f_rpm;
     struct vec tau_rpm;
     struct vec tau_rpm_filtered;
-    struct vec tau_gyro_filtered;
-    struct vec tau_gyro;
+    struct vec tau_imu_filtered;
+    struct vec tau_imu;
 
     struct vec a_rpm;
     struct vec a_rpm_filtered;
@@ -212,6 +214,8 @@ typedef struct controllerLeePayload_s {
     struct vec Tq;
     float tension;
     uint64_t timestamp_payload_prev;
+    uint64_t timestamp_qdidot_prev;
+    uint64_t timestamp_qidot_prev;
 
 
 } controllerLeePayload_t;

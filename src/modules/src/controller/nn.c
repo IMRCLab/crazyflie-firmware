@@ -3,7 +3,7 @@
 #include "nn.h"
 #include "nn_utils.h"
 
-#define USE_PAYLOAD 0
+#define USE_PAYLOAD 1
 #define USE_SMOOTHING 1
 
 

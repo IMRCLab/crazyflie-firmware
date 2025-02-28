@@ -680,6 +680,7 @@ static controllerLeePayload_t g_self = {
   .Kpos_D_limit = 100,
   .Kpos_I ={10, 10, 10},
   .Kpos_I_limit = 0,
+  .Kpos_A ={2, 2, 2},
 
   // Payload attitude gains
 
@@ -742,8 +743,12 @@ static logVarId_t logVarRpm4;
 static Butterworth2LowPass filter_acc_rpm[3];
 static Butterworth2LowPass filter_acc_imu[3];
 static Butterworth2LowPass filter_tau_rpm[3];
-static Butterworth2LowPass filter_angular_acc[3];
+static Butterworth2LowPass filter_tau_imu[3];
 
+// static Butterworth2LowPass filter_angular_acc[3];
+
+extern float rpm2pwmA;
+extern float rpm2pwmB;
 extern float kappa_f[4];
 
 static inline struct vec vclampscl(struct vec value, float min, float max) {
@@ -1255,6 +1260,8 @@ static inline struct vec get_butterworth_2_low_pass_vec(Butterworth2LowPass filt
 
 static Butterworth2LowPass filter_payload_vel[3];
 static Butterworth2LowPass filter_payload_acc[3];
+static Butterworth2LowPass filter_qdidot[3];
+static Butterworth2LowPass filter_qidot[3];
 
 void controllerLeePayloadReset(controllerLeePayload_t* self)
 {
@@ -1290,10 +1297,12 @@ void controllerLeePayloadInit(controllerLeePayload_t* self)
   time_start = usecTimestamp();
 
   for (int8_t i = 0; i < 3; i++) {
-    const float cutoff = 70; // Hz
-    const float cutoff_acc = 30; // Hz
+    const float cutoff = 5; // Hz
+    const float cutoff_acc = 5; // Hz
     init_butterworth_2_low_pass(&filter_payload_vel[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
     init_butterworth_2_low_pass(&filter_payload_acc[i], 1 / (2 * M_PI_F * cutoff_acc), 1.0 / ATTITUDE_RATE, 0.0f);
+    init_butterworth_2_low_pass(&filter_qdidot[i], 1 / (2 * M_PI_F * cutoff_acc), 1.0 / ATTITUDE_RATE, 0.0f);
+    init_butterworth_2_low_pass(&filter_qidot[i], 1 / (2 * M_PI_F * cutoff_acc), 1.0 / ATTITUDE_RATE, 0.0f);
   }
 
   paramVarId_t idDeckBcRpm = paramGetVarId("deck", "bcRpm");
@@ -1304,14 +1313,21 @@ void controllerLeePayloadInit(controllerLeePayload_t* self)
 
   rpm_deck_available = (paramGetUint(idDeckBcRpm) == 1);
 
+  const float cutoff = 30; // Hz
 	for (int8_t i = 0; i < 3; i++) {
-    const float cutoff = 30; // Hz
 		init_butterworth_2_low_pass(&filter_acc_rpm[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
 		init_butterworth_2_low_pass(&filter_acc_imu[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
+  }
 
+	for (int8_t i = 0; i < 2; i++) {
 		init_butterworth_2_low_pass(&filter_tau_rpm[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
-		init_butterworth_2_low_pass(&filter_angular_acc[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
+		init_butterworth_2_low_pass(&filter_tau_imu[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
+		// init_butterworth_2_low_pass(&filter_angular_acc[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
 	}
+  const float cutoff_z = 3; // Hz
+		init_butterworth_2_low_pass(&filter_tau_rpm[2], 1 / (2 * M_PI_F * cutoff_z), 1.0 / ATTITUDE_RATE, 0.0f);
+		init_butterworth_2_low_pass(&filter_tau_imu[2], 1 / (2 * M_PI_F * cutoff_z), 1.0 / ATTITUDE_RATE, 0.0f);
+
 
   self->timestamp_prev = usecTimestamp();
   self->omega_prev = vzero();
@@ -1319,6 +1335,8 @@ void controllerLeePayloadInit(controllerLeePayload_t* self)
   // Acceleration estimation
   self->payload_vel_prev = vzero();
   self->timestamp_payload_prev = usecTimestamp();
+  self->timestamp_qdidot_prev = usecTimestamp();
+  self->timestamp_qidot_prev = usecTimestamp();
 }
 
 bool controllerLeePayloadTest(controllerLeePayload_t* self)
@@ -1507,30 +1525,37 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     self->plp_error = plpos_e;
     self->plv_error = plvel_e;
 
-    // Lee (20)
-    // Note that the last component is not included here, since it would require
-    // computing delta_bar_xi for all i, on each robot
-    self->F_d = vsub(
-        vscl(self->mp ,vadd4(
+
+    self->tension = 0;
+    // struct vec acc_ = vscl(1/self->mp, self->F_d);
+    struct vec acc_ = plAcc_d;
+    self->plAcc_des = plAcc_d;
+    if (self->est_acc == 1) {
+      struct vec plAcc_unfiltered = vzero();
+
+      uint64_t timestamp_payload = usecTimestamp();
+      float dt = (timestamp_payload - self->timestamp_payload_prev) / 1e6;
+
+      plAcc_unfiltered = vdiv(vsub(plStVel, self->payload_vel_prev), dt);
+      update_butterworth_2_low_pass_vec(filter_payload_acc, plAcc_unfiltered);
+      self->plAcc_filtered = get_butterworth_2_low_pass_vec(filter_payload_acc);
+      self->plAcc_filtered.z += GRAVITY_MAGNITUDE;
+      acc_ = self->plAcc_filtered; 
+
+      self->payload_vel_prev = plStVel;
+      self->timestamp_payload_prev = timestamp_payload;
+    } 
+      self->tension = vdot(vscl(-self->mp, acc_), self->qi);
+      // acc_ = vscl(-self->tension/self->mp, self->qi);
+      // acc_ = plAcc_d;
+      self->plAcc_filtered = acc_;
+
+    self->F_d = vscl(self->mp ,vadd5(
+          veltmul(self->Kpos_A, vsub(plAcc_d, acc_)),
           plAcc_d,
           veltmul(self->Kpos_P, plpos_e),
           veltmul(self->Kpos_D, plvel_e),
-          veltmul(self->Kpos_I, self->i_error_pos))), // not in the original formulation
-        self->delta_bar_x0
-      );
-
-    // Lee (21)
-    // Note that the part with omega_0_d and omega_0_d_dot are not included, as they are zero in our case
-
-    // Note that the last component is not included here, since it would require
-    // computing delta_bar_xi for all i, on each robot
-    self->M_d = vadd4(
-      vneg(veltmul(self->Kprot_P, vclampnorm(eRp, self->Kprot_P_limit))),
-      vneg(veltmul(self->Kprot_D, vclampnorm(omega_perror, self->Kprot_D_limit))),
-      vneg(veltmul(self->Kprot_I, self->i_error_pl_att)), // not in the original formulation
-      vneg(self->delta_bar_R0)
-    );
-
+          veltmul(self->Kpos_I, self->i_error_pos)));
 
     if (state->num_uavs > 1) {
       computeDesiredVirtualInput(self, state, setpoint, self->F_d, self->M_d, tick, &self->desVirtInp, &self->desVirtInp_tick);
@@ -1592,6 +1617,14 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       self->qidot = vdiv(vsub(vadd(plStVel, mvmul(R0_dot, attPoint)), stateVel), l);
     } else {
       self->qidot = vdiv(vsub(plStVel, stateVel), l);
+      // uint64_t timestamp_qidot = usecTimestamp();
+      // struct vec qidot_unfiltered;
+      // float dt = (timestamp_qidot - self->timestamp_qidot_prev) / 1e6;
+      // qidot_unfiltered = vdiv(vsub(self->qi, self->qi_prev), dt);
+      // update_butterworth_2_low_pass_vec(filter_qidot, qidot_unfiltered);
+      // self->qidot = get_butterworth_2_low_pass_vec(filter_qdidot);
+      // self->qi_prev = self->qi;
+      // self->timestamp_qidot_prev = timestamp_qidot;
     }
 
     struct vec wi = vcross(self->qi, self->qidot);
@@ -1600,32 +1633,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
 
     
     // Compute parallel component
-    struct vec acc_ = plAcc_d;
-    self->plAcc_des = plAcc_d;
-    self->tension = 0;
-    if (self->est_acc == 1) {
-      struct vec plAcc_unfiltered = vzero();
 
-      uint64_t timestamp_payload = usecTimestamp();
-      float dt = (timestamp_payload - self->timestamp_payload_prev) / 1e6;
-
-      plAcc_unfiltered = vdiv(vsub(plStVel, self->payload_vel_prev), dt);
-      update_butterworth_2_low_pass_vec(filter_payload_acc, plAcc_unfiltered);
-      self->plAcc_filtered = get_butterworth_2_low_pass_vec(filter_payload_acc);
-      self->plAcc_filtered.z += GRAVITY_MAGNITUDE;
-      // acc_ = self->plAcc_filtered; 
-
-      self->payload_vel_prev = plStVel;
-      self->timestamp_payload_prev = timestamp_payload;
-    } else if (self->est_acc == 2) {
-      // we want to compute Tq from  desired payload accelerations: self->plAcc_des, where self->plAcc_des has the gravity term
-      self->tension = vdot(vscl(-self->mp, self->plAcc_des), self->qi);
-      // self->Tq = vscl(tension, self->qi); // THIS IS THE ACCELERATION
-      // acc_ = self->Tq;
-    } 
-
-
-    // struct vec acc_ = vscl(1/self->mp, self->F_d);
     if (!isnanf(plquat.w)) {
       if (self->en_accrb) {
         acc_ = vadd(plAcc_d, qvrot(plquat, mvmul(mmul(mcrossmat(plomega), mcrossmat(plomega)), attPoint)));
@@ -1642,12 +1650,18 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
 
     if (self->desVirtInp_tick != self->qdi_prev_tick) {
       if (self->en_qdidot) {
-        self->qdidot = self->qid_ref;
+        // self->qdidot = self->qid_ref;
+        uint64_t timestamp_qdidot = usecTimestamp();
+        struct vec qdidot_unfiltered;
+        float dt = (timestamp_qdidot - self->timestamp_qdidot_prev) / 1e6;
+        qdidot_unfiltered = vdiv(vsub(self->qdi, self->qdi_prev), dt);
+        update_butterworth_2_low_pass_vec(filter_qdidot, qdidot_unfiltered);
+        self->qdidot = get_butterworth_2_low_pass_vec(filter_qdidot);
+        self->qdi_prev = self->qdi;
+        self->timestamp_qdidot_prev = timestamp_qdidot;
       } else {
         self->qdidot = vzero();
       }
-      self->qdi_prev = self->qdi;
-      self->qdi_prev_tick = self->desVirtInp_tick;
     }
     struct vec wdi = vcross(self->qdi, self->qdidot);
     struct vec ew = vadd(wi, mvmul(skewqi2, wdi));
@@ -1727,8 +1741,6 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     if (self->use_nn & 1) {
       a_nn.x = self->nn_output[0] / self->mass;
       a_nn.y = self->nn_output[1] / self->mass;
-    }
-    if (self->use_nn & 2) {
       a_nn.z = self->nn_output[2] / self->mass;
     }
 
@@ -1738,15 +1750,8 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     if ((self->indi & 1) && rpm_deck_available) {
 
       float f_rpm = t1 + t2 + t3 + t4;
-      // xdd_uav  = (f/m)Re3 - ge3 - (mp/m)*(xdd_payload + ge3)
-      // note that acc_ = xdd_payload + ge3
-      // add neural network:
+      self->a_rpm = vadd(vadd(vsub(vscl(f_rpm / self->mass, mvmul(self->R, e3)), mkvec(0.0, 0.0, 9.81f)), vscl(self->tension/ self->mass, self->qi)), a_nn);
       // self->a_rpm = vadd(vsub(vsub(vscl(f_rpm / self->mass, mvmul(self->R, e3)), mkvec(0.0, 0.0, 9.81f)), vscl(self->mp/self->mass, acc_)), a_nn);
-      if (self->est_acc == 2) { 
-      //   // (self->plAcc_des = xl_des + ge3) -->  Tq = -mp*self->plAcc_des --> tension = vdot(Tq, q) --> uav acc: xddot = (f/mass)Re3 - ge3 - Tq/mass, where Tq/mass = (tension/mass)q 
-        self->a_rpm = vadd(vadd(vsub(vscl(f_rpm / self->mass, mvmul(self->R, e3)), mkvec(0.0, 0.0, 9.81f)), vscl(self->tension/ self->mass, self->qi)), a_nn);
-      }
-      // self->a_rpm = vsub(vscl(f_rpm / self->mass, mvmul(self->R, e3)), mkvec(0.0, 0.0, 9.81f));
 
       update_butterworth_2_low_pass_vec(filter_acc_rpm, self->a_rpm);
 
@@ -1757,7 +1762,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       self->a_rpm_filtered = get_butterworth_2_low_pass_vec(filter_acc_rpm);
       self->a_imu_filtered = get_butterworth_2_low_pass_vec(filter_acc_imu);
 
-      a_indi = vsub(self->a_rpm_filtered, self->a_imu_filtered);
+      a_indi = vsub(self->a_imu_filtered, self->a_rpm_filtered);
 
       // DEBUG
       if (tick % 500 == 0) {
@@ -1769,7 +1774,8 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     self->u_i = vadd(u_parallel, u_perpind);
     // self->u_i = vsub(vsub(self->u_i, vscl(self->mass, a_indi)), a_nn);
     // u_i = u_parallel + u_perpind - (+?) mass*a_indi + mass*a_nn
-    self->u_i = vadd(vsub(self->u_i, vscl(self->mass, a_indi)), vscl(self->mass, a_nn));
+    self->u_i = vsub(vsub(self->u_i, vscl(self->mass, a_indi)), vscl(self->mass, a_nn));
+    // self->u_i = vsub(vadd(self->u_i, vscl(self->mass, a_indi)), vscl(self->mass, a_nn));
 
     // self->q = mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w);
     // self->rpy = quat2rpy(self->q);
@@ -1863,7 +1869,8 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     struct vec zdes = mcolumn(self->R_des, 2);
     struct vec hw = vzero();
     // Desired Jerk and snap for now are zeros vector
-    struct vec desJerk = mkvec(setpoint->jerk.x, setpoint->jerk.y, setpoint->jerk.z);
+    // struct vec desJerk = mkvec(setpoint->jerk.x, setpoint->jerk.y, setpoint->jerk.z);
+    struct vec desJerk = vzero();
 
     if (control->thrustSi != 0) {
       struct vec tmp = vsub(desJerk, vscl(vdot(zdes, desJerk), zdes));
@@ -1895,15 +1902,13 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
   // }
 
   struct vec u_nn = vzero();
-  if (self->use_nn & 4) {
+  if (self->use_nn & 2) {
     u_nn.x = self->nn_output[3];
     u_nn.y = self->nn_output[4];
     u_nn.z = self->nn_output[5];
   }
 
-  self->u = vadd(self->u, u_nn);
-
-  struct vec indi_moments;
+  struct vec indi_moments = vzero();
   if ((self->indi & 2) && rpm_deck_available) {
     const float t2t = 0.006f;
     const float arm = 0.707106781f * 0.046f;
@@ -1912,7 +1917,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       -arm * t1 + arm * t2 + arm * t3 - arm * t4,
       -t2t * t1 + t2t * t2 - t2t * t3 + t2t * t4
     );
-    self->tau_rpm = vsub(self->tau_rpm, u_nn);
+    self->tau_rpm = vadd(self->tau_rpm, u_nn);
     update_butterworth_2_low_pass_vec(filter_tau_rpm, self->tau_rpm);
 
     self->tau_rpm_filtered = get_butterworth_2_low_pass_vec(filter_tau_rpm);
@@ -1921,26 +1926,26 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     uint64_t timestamp = usecTimestamp();
     float dt = (timestamp - self->timestamp_prev) / 1e6;
     struct vec angular_acc = vdiv(vsub(self->omega, self->omega_prev), dt);
-    self->tau_gyro = veltmul(self->J, angular_acc);
+    self->tau_imu = veltmul(self->J, angular_acc);
+    self->tau_imu = vsub(self->tau_imu, vcross(veltmul(self->J, self->omega), self->omega));
 
-    update_butterworth_2_low_pass_vec(filter_angular_acc, angular_acc);
+    update_butterworth_2_low_pass_vec(filter_tau_imu, self->tau_imu);
 
-    struct vec angular_acc_filtered = get_butterworth_2_low_pass_vec(filter_angular_acc);
-    self->tau_gyro_filtered = veltmul(self->J, angular_acc_filtered);
+    self->tau_imu_filtered = get_butterworth_2_low_pass_vec(filter_tau_imu);
+    // self->tau_imu_filtered = veltmul(self->J, angular_acc_filtered);
 
     self->omega_prev = self->omega;
     self->timestamp_prev = timestamp;
 
-    indi_moments = vsub(self->tau_rpm_filtered, self->tau_gyro_filtered);
-    indi_moments.z = 0.0f; // TODO: DEBUGGING ONLY DELETE ME
-    self->u = vsub(self->u, indi_moments);
-
-    // DEBUG
-    if (tick % 1000 == 0) {
-      DEBUG_PRINT("INDI a %f %f %f, %f %f %f\n", (double)self->tau_rpm_filtered.x, (double)self->tau_rpm_filtered.y, (double)self->tau_rpm_filtered.z, (double)self->tau_gyro_filtered.x, (double)self->tau_gyro_filtered.y, (double)self->tau_gyro_filtered.z);
-    }
+    indi_moments = vsub(self->tau_imu_filtered, self->tau_rpm_filtered);
+    // indi_moments.z = 0.0f;
+    // // DEBUG
+    // if (tick % 1000 == 0) {
+    //   DEBUG_PRINT("INDI a %f %f %f, %f %f %f\n", (double)self->tau_rpm_filtered.x, (double)self->tau_rpm_filtered.y, (double)self->tau_rpm_filtered.z, (double)self->tau_imu_filtered.x, (double)self->tau_imu_filtered.y, (double)self->tau_imu_filtered.z);
+    // }
   }
-
+  self->u = vsub2(self->u, indi_moments, u_nn);
+  // self->u = vadd3(self->u, indi_moments, u_nn);
   control->controlMode = controlModeForceTorque;
   control->torque[0] = self->u.x;
   control->torque[1] = self->u.y;
@@ -2012,6 +2017,12 @@ PARAM_ADD(PARAM_FLOAT, Kpos_Ix, &g_self.Kpos_I.x)
 PARAM_ADD(PARAM_FLOAT, Kpos_Iy, &g_self.Kpos_I.y)
 PARAM_ADD(PARAM_FLOAT, Kpos_Iz, &g_self.Kpos_I.z)
 PARAM_ADD(PARAM_FLOAT, Kpos_I_limit, &g_self.Kpos_I_limit)
+
+// Payload Acceleration A
+PARAM_ADD(PARAM_FLOAT, Kpos_Ax, &g_self.Kpos_A.x)
+PARAM_ADD(PARAM_FLOAT, Kpos_Ay, &g_self.Kpos_A.y)
+PARAM_ADD(PARAM_FLOAT, Kpos_Az, &g_self.Kpos_A.z)
+PARAM_ADD(PARAM_FLOAT, Kpos_A_limit, &g_self.Kpos_A_limit)
 
 // Attitude Payload P
 PARAM_ADD(PARAM_FLOAT, Kprot_Px, &g_self.Kprot_P.x)
@@ -2351,13 +2362,13 @@ LOG_ADD(LOG_FLOAT, tau_rpm_fx, &g_self.tau_rpm_filtered.x)  // compare to torque
 LOG_ADD(LOG_FLOAT, tau_rpm_fy, &g_self.tau_rpm_filtered.y)  // compare to torquey
 LOG_ADD(LOG_FLOAT, tau_rpm_fz, &g_self.tau_rpm_filtered.z)  // compare to torquez
 
-LOG_ADD(LOG_FLOAT, tau_gyro_x, &g_self.tau_gyro.x)  // compare to torquex
-LOG_ADD(LOG_FLOAT, tau_gyro_y, &g_self.tau_gyro.y)  // compare to torquey
-LOG_ADD(LOG_FLOAT, tau_gyro_z, &g_self.tau_gyro.z)  // compare to torquez
+LOG_ADD(LOG_FLOAT, tau_imu_x, &g_self.tau_imu.x)  // compare to torquex
+LOG_ADD(LOG_FLOAT, tau_imu_y, &g_self.tau_imu.y)  // compare to torquey
+LOG_ADD(LOG_FLOAT, tau_imu_z, &g_self.tau_imu.z)  // compare to torquez
 
-LOG_ADD(LOG_FLOAT, tau_gyro_fx, &g_self.tau_gyro_filtered.x)  // compare to torquex
-LOG_ADD(LOG_FLOAT, tau_gyro_fy, &g_self.tau_gyro_filtered.y)  // compare to torquey
-LOG_ADD(LOG_FLOAT, tau_gyro_fz, &g_self.tau_gyro_filtered.z)  // compare to torquez
+LOG_ADD(LOG_FLOAT, tau_imu_fx, &g_self.tau_imu_filtered.x)  // compare to torquex
+LOG_ADD(LOG_FLOAT, tau_imu_fy, &g_self.tau_imu_filtered.y)  // compare to torquey
+LOG_ADD(LOG_FLOAT, tau_imu_fz, &g_self.tau_imu_filtered.z)  // compare to torquez
 
 LOG_ADD(LOG_FLOAT, a_rpmx, &g_self.a_rpm.x)
 LOG_ADD(LOG_FLOAT, a_rpmy, &g_self.a_rpm.y)
@@ -2400,6 +2411,10 @@ LOG_ADD(LOG_UINT32, profQP, &qp_runtime_us)
 
 LOG_ADD(LOG_FLOAT, nnfx, &g_self.nn_output[0])
 LOG_ADD(LOG_FLOAT, nnfy, &g_self.nn_output[1])
+LOG_ADD(LOG_FLOAT, nnfz, &g_self.nn_output[2])
+LOG_ADD(LOG_FLOAT, nntx, &g_self.nn_output[3])
+LOG_ADD(LOG_FLOAT, nnty, &g_self.nn_output[4])
+LOG_ADD(LOG_FLOAT, nntz, &g_self.nn_output[5])
 
 LOG_GROUP_STOP(ctrlLeeP)
 
