@@ -1548,14 +1548,46 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       self->tension = vdot(vscl(-self->mp, acc_), self->qi);
       // acc_ = vscl(-self->tension/self->mp, self->qi);
       // acc_ = plAcc_d;
-      self->plAcc_filtered = acc_;
+      // self->plAcc_filtered = acc_;
 
-    self->F_d = vscl(self->mp ,vadd5(
+    // INDI
+    struct vec f_indi = vzero();
+    struct vec e3 = mkvec(0,0,1);
+    if ((self->indi & 1) && rpm_deck_available) {
+
+      float f_rpm = t1 + t2 + t3 + t4;
+      // self->a_rpm = vadd(vadd(vsub(vscl(f_rpm / self->mass, mvmul(self->R, e3)), mkvec(0.0, 0.0, 9.81f)), vscl(self->tension/ self->mass, self->qi)), a_nn);
+      // self->a_rpm = vadd(vsub(vsub(vscl(f_rpm / self->mass, mvmul(self->R, e3)), mkvec(0.0, 0.0, 9.81f)), vscl(self->mp/self->mass, acc_)), a_nn);
+      // F_RPM(fuRe3 - mge3 - mpge3)
+
+      self->a_rpm = vsub2(vscl(f_rpm, mvmul(self->R, e3)),  mkvec(0.0, 0.0, self->mass*9.81f), mkvec(0.0, 0.0, self->mp*9.81f)); // THIS IS A FORCE
+      update_butterworth_2_low_pass_vec(filter_acc_rpm, self->a_rpm);
+
+      // f_IMU(mp*vpdot + m*vdot)
+      struct vec acc_payload_wo_grav = vsub(acc_, mkvec(0,0,GRAVITY_MAGNITUDE));
+      // compute acceleration based on IMU (world frame, SI unit, no gravity)
+      struct vec uav_acc = vscl(9.81, mkvec(state->acc.x, state->acc.y, state->acc.z));
+      self->a_imu = vadd(vscl(self->mp, acc_payload_wo_grav), vscl(self->mass, uav_acc)); // THIS IS A FORCE
+      update_butterworth_2_low_pass_vec(filter_acc_imu, self->a_imu);
+
+      self->a_rpm_filtered = get_butterworth_2_low_pass_vec(filter_acc_rpm); // NOTE: this is a force 
+      self->a_imu_filtered = get_butterworth_2_low_pass_vec(filter_acc_imu); // NOTE: this is a force
+
+      f_indi = vsub(self->a_imu_filtered, self->a_rpm_filtered);
+
+      // DEBUG
+      if (tick % 500 == 0) {
+        DEBUG_PRINT("INDI p %f %f %f, %f %f %f\n", (double)self->a_rpm_filtered.x, (double)self->a_rpm_filtered.y, (double)self->a_rpm_filtered.z, (double)self->a_imu_filtered.x, (double)self->a_imu_filtered.y, (double)self->a_imu_filtered.z);
+      }
+    }
+
+
+    self->F_d = vsub(vscl(self->mp ,vadd5(
           veltmul(self->Kpos_A, vsub(plAcc_d, acc_)),
           plAcc_d,
           veltmul(self->Kpos_P, plpos_e),
           veltmul(self->Kpos_D, plvel_e),
-          veltmul(self->Kpos_I, self->i_error_pos)));
+          veltmul(self->Kpos_I, self->i_error_pos))), f_indi);
 
     if (state->num_uavs > 1) {
       computeDesiredVirtualInput(self, state, setpoint, self->F_d, self->M_d, tick, &self->desVirtInp, &self->desVirtInp_tick);
@@ -1745,36 +1777,36 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     }
 
     // INDI
-    struct vec a_indi = vzero();
-    struct vec e3 = mkvec(0,0,1);
-    if ((self->indi & 1) && rpm_deck_available) {
+    // struct vec a_indi = vzero();
+    // struct vec e3 = mkvec(0,0,1);
+    // if ((self->indi & 1) && rpm_deck_available) {
 
-      float f_rpm = t1 + t2 + t3 + t4;
-      self->a_rpm = vadd(vadd(vsub(vscl(f_rpm / self->mass, mvmul(self->R, e3)), mkvec(0.0, 0.0, 9.81f)), vscl(self->tension/ self->mass, self->qi)), a_nn);
-      // self->a_rpm = vadd(vsub(vsub(vscl(f_rpm / self->mass, mvmul(self->R, e3)), mkvec(0.0, 0.0, 9.81f)), vscl(self->mp/self->mass, acc_)), a_nn);
+    //   float f_rpm = t1 + t2 + t3 + t4;
+    //   self->a_rpm = vadd(vadd(vsub(vscl(f_rpm / self->mass, mvmul(self->R, e3)), mkvec(0.0, 0.0, 9.81f)), vscl(self->tension/ self->mass, self->qi)), a_nn);
+    //   // self->a_rpm = vadd(vsub(vsub(vscl(f_rpm / self->mass, mvmul(self->R, e3)), mkvec(0.0, 0.0, 9.81f)), vscl(self->mp/self->mass, acc_)), a_nn);
 
-      update_butterworth_2_low_pass_vec(filter_acc_rpm, self->a_rpm);
+    //   update_butterworth_2_low_pass_vec(filter_acc_rpm, self->a_rpm);
 
-      // compute acceleration based on IMU (world frame, SI unit, no gravity)
-      self->a_imu = vscl(9.81, mkvec(state->acc.x, state->acc.y, state->acc.z));
-      update_butterworth_2_low_pass_vec(filter_acc_imu, self->a_imu);
+    //   // compute acceleration based on IMU (world frame, SI unit, no gravity)
+    //   self->a_imu = vscl(9.81, mkvec(state->acc.x, state->acc.y, state->acc.z));
+    //   update_butterworth_2_low_pass_vec(filter_acc_imu, self->a_imu);
 
-      self->a_rpm_filtered = get_butterworth_2_low_pass_vec(filter_acc_rpm);
-      self->a_imu_filtered = get_butterworth_2_low_pass_vec(filter_acc_imu);
+    //   self->a_rpm_filtered = get_butterworth_2_low_pass_vec(filter_acc_rpm);
+    //   self->a_imu_filtered = get_butterworth_2_low_pass_vec(filter_acc_imu);
 
-      a_indi = vsub(self->a_imu_filtered, self->a_rpm_filtered);
+    //   a_indi = vsub(self->a_imu_filtered, self->a_rpm_filtered);
 
-      // DEBUG
-      if (tick % 500 == 0) {
-        DEBUG_PRINT("INDI p %f %f %f, %f %f %f\n", (double)self->a_rpm_filtered.x, (double)self->a_rpm_filtered.y, (double)self->a_rpm_filtered.z, (double)self->a_imu_filtered.x, (double)self->a_imu_filtered.y, (double)self->a_imu_filtered.z);
-      }
-    }
+    //   // DEBUG
+    //   if (tick % 500 == 0) {
+    //     DEBUG_PRINT("INDI p %f %f %f, %f %f %f\n", (double)self->a_rpm_filtered.x, (double)self->a_rpm_filtered.y, (double)self->a_rpm_filtered.z, (double)self->a_imu_filtered.x, (double)self->a_imu_filtered.y, (double)self->a_imu_filtered.z);
+    //   }
+    // }
 
 
     self->u_i = vadd(u_parallel, u_perpind);
     // self->u_i = vsub(vsub(self->u_i, vscl(self->mass, a_indi)), a_nn);
     // u_i = u_parallel + u_perpind - (+?) mass*a_indi + mass*a_nn
-    self->u_i = vsub(vsub(self->u_i, vscl(self->mass, a_indi)), vscl(self->mass, a_nn));
+    // self->u_i = vsub(vsub(self->u_i, vscl(self->mass, a_indi)), vscl(self->mass, a_nn));
     // self->u_i = vsub(vadd(self->u_i, vscl(self->mass, a_indi)), vscl(self->mass, a_nn));
 
     // self->q = mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w);
