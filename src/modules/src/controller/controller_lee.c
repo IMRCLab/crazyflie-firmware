@@ -92,7 +92,9 @@ static logVarId_t logVarRpm4;
 static Butterworth2LowPass filter_acc_rpm[3];
 static Butterworth2LowPass filter_acc_imu[3];
 static Butterworth2LowPass filter_tau_rpm[3];
-static Butterworth2LowPass filter_angular_acc[3];
+static Butterworth2LowPass filter_tau_imu[3];
+
+// static Butterworth2LowPass filter_angular_acc[3];
 
 extern float rpm2pwmA;
 extern float rpm2pwmB;
@@ -143,14 +145,21 @@ void controllerLeeInit(controllerLee_t* self)
 
   rpm_deck_available = (paramGetUint(idDeckBcRpm) == 1);
 
+  const float cutoff = 30; // Hz
 	for (int8_t i = 0; i < 3; i++) {
-    const float cutoff = 30; // Hz
 		init_butterworth_2_low_pass(&filter_acc_rpm[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
 		init_butterworth_2_low_pass(&filter_acc_imu[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
+  }
 
+	for (int8_t i = 0; i < 2; i++) {
 		init_butterworth_2_low_pass(&filter_tau_rpm[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
-		init_butterworth_2_low_pass(&filter_angular_acc[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
+		init_butterworth_2_low_pass(&filter_tau_imu[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
+		// init_butterworth_2_low_pass(&filter_angular_acc[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
 	}
+  const float cutoff_z = 3; // Hz
+		init_butterworth_2_low_pass(&filter_tau_rpm[2], 1 / (2 * M_PI_F * cutoff_z), 1.0 / ATTITUDE_RATE, 0.0f);
+		init_butterworth_2_low_pass(&filter_tau_imu[2], 1 / (2 * M_PI_F * cutoff_z), 1.0 / ATTITUDE_RATE, 0.0f);
+
 
   if (rpm_deck_available && (self->indi == 3)) {
     DEBUG_PRINT("Using INDI (both)\n");
@@ -313,19 +322,15 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     if (self->use_nn & 1) {
       a_nn.x = self->nn_output[0] / self->mass;
       a_nn.y = self->nn_output[1] / self->mass;
-    }
-    if (self->use_nn & 2) {
       a_nn.z = self->nn_output[2] / self->mass;
     }
-    // add NN to position controller
-    a_d = vadd(a_d, a_nn);
     // INDI
     struct vec a_indi = vzero();
     if ((self->indi & 1) && rpm_deck_available) {
 
       float f_rpm = t1 + t2 + t3 + t4;
       // add nn to a_rpm
-      self->a_rpm = vsub(vsub(vscl(f_rpm / self->mass, mvmul(R, z)), mkvec(0.0, 0.0, 9.81f)), a_nn);
+      self->a_rpm = vadd(vsub(vscl(f_rpm / self->mass, mvmul(R, z)), mkvec(0.0, 0.0, 9.81f)), a_nn);
       // self->a_rpm = vsub(vscl(f_rpm / self->mass, mvmul(R, z)), mkvec(0.0, 0.0, 9.81f));
       update_butterworth_2_low_pass_vec(filter_acc_rpm, self->a_rpm);
 
@@ -336,14 +341,15 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
       self->a_rpm_filtered = get_butterworth_2_low_pass_vec(filter_acc_rpm);
       self->a_imu_filtered = get_butterworth_2_low_pass_vec(filter_acc_imu);
 
-      a_indi = vsub(self->a_rpm_filtered, self->a_imu_filtered);
+      a_indi = vsub(self->a_imu_filtered, self->a_rpm_filtered);
 
       // // DEBUG
       // if (tick % 500 == 0) {
       //   DEBUG_PRINT("INDI p %f %f %f, %f %f %f\n", (double)self->a_rpm_filtered.x, (double)self->a_rpm_filtered.y, (double)self->a_rpm_filtered.z, (double)self->a_imu_filtered.x, (double)self->a_imu_filtered.y, (double)self->a_imu_filtered.z);
       // }
     }
-    control->thrustSi = self->mass*vdot(vadd(a_d, a_indi), mvmul(R, z));
+    struct vec F_d = vsub2(a_d, a_indi, a_nn);
+    control->thrustSi = self->mass*vdot(F_d, mvmul(R, z));
     self->thrustSi = control->thrustSi;
     // Reset the accumulated error while on the ground
     if (control->thrustSi < 0.01f) {
@@ -351,7 +357,6 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     }
 
     // Compute Desired Rotation matrix
-    struct vec F_d = vadd(a_d, a_indi);
     struct vec xb = vnormalize(vcross(yc, F_d));
     struct vec yb = vnormalize(vcross(F_d, xb));
     struct vec zb = vcross(xb, yb);
@@ -455,15 +460,13 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     vneg(veltmul(self->J, vsub(mvmul(mcrossmat(self->omega), self->omega_r), mvmul(mmul(mtranspose(R), self->R_des), self->omega_des_dot)))));
 
   struct vec u_nn = vzero();
-  if (self->use_nn & 4) {
+  if (self->use_nn & 2) {
     u_nn.x = self->nn_output[3];
     u_nn.y = self->nn_output[4];
     u_nn.z = self->nn_output[5];
   }
 
-  self->u = vadd(self->u, u_nn);
-
-  struct vec indi_moments;
+  struct vec indi_moments = vzero();
   if ((self->indi & 2) && rpm_deck_available) {
     const float t2t = 0.006f;
     const float arm = 0.707106781f * 0.046f;
@@ -472,7 +475,7 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
       -arm * t1 + arm * t2 + arm * t3 - arm * t4,
       -t2t * t1 + t2t * t2 - t2t * t3 + t2t * t4
     );
-    self->tau_rpm = vsub(self->tau_rpm, u_nn);
+    self->tau_rpm = vadd(self->tau_rpm, u_nn);
     update_butterworth_2_low_pass_vec(filter_tau_rpm, self->tau_rpm);
 
     self->tau_rpm_filtered = get_butterworth_2_low_pass_vec(filter_tau_rpm);
@@ -481,26 +484,27 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     uint64_t timestamp = usecTimestamp();
     float dt = (timestamp - self->timestamp_prev) / 1e6;
     struct vec angular_acc = vdiv(vsub(self->omega, self->omega_prev), dt);
-    self->tau_gyro = veltmul(self->J, angular_acc);
+    self->tau_imu = veltmul(self->J, angular_acc);
+    self->tau_imu = vsub(self->tau_imu, vcross(veltmul(self->J, self->omega), self->omega));
 
-    update_butterworth_2_low_pass_vec(filter_angular_acc, angular_acc);
+    update_butterworth_2_low_pass_vec(filter_tau_imu, self->tau_imu);
 
-    struct vec angular_acc_filtered = get_butterworth_2_low_pass_vec(filter_angular_acc);
-    self->tau_gyro_filtered = veltmul(self->J, angular_acc_filtered);
+    self->tau_imu_filtered = get_butterworth_2_low_pass_vec(filter_tau_imu);
+    // self->tau_imu_filtered = veltmul(self->J, angular_acc_filtered);
 
     self->omega_prev = self->omega;
     self->timestamp_prev = timestamp;
 
-    indi_moments = vsub(self->tau_rpm_filtered, self->tau_gyro_filtered);
-    indi_moments.z = 0.0f;
-    self->u = vadd(self->u, indi_moments);
+    indi_moments = vsub(self->tau_imu_filtered, self->tau_rpm_filtered);
+    // indi_moments.z = 0.0f;
+    // self->u = vsub(self->u, indi_moments);
 
     // // DEBUG
     // if (tick % 1000 == 0) {
-    //   DEBUG_PRINT("INDI a %f %f %f, %f %f %f\n", (double)self->tau_rpm_filtered.x, (double)self->tau_rpm_filtered.y, (double)self->tau_rpm_filtered.z, (double)self->tau_gyro_filtered.x, (double)self->tau_gyro_filtered.y, (double)self->tau_gyro_filtered.z);
+    //   DEBUG_PRINT("INDI a %f %f %f, %f %f %f\n", (double)self->tau_rpm_filtered.x, (double)self->tau_rpm_filtered.y, (double)self->tau_rpm_filtered.z, (double)self->tau_imu_filtered.x, (double)self->tau_imu_filtered.y, (double)self->tau_imu_filtered.z);
     // }
   }
-
+  self->u = vsub2(self->u, indi_moments, u_nn);
   control->controlMode = controlModeForceTorque;
   control->torque[0] = self->u.x;
   control->torque[1] = self->u.y;
@@ -679,13 +683,13 @@ LOG_ADD(LOG_FLOAT, tau_rpm_fx, &g_self.tau_rpm_filtered.x)  // compare to torque
 LOG_ADD(LOG_FLOAT, tau_rpm_fy, &g_self.tau_rpm_filtered.y)  // compare to torquey
 LOG_ADD(LOG_FLOAT, tau_rpm_fz, &g_self.tau_rpm_filtered.z)  // compare to torquez
 
-LOG_ADD(LOG_FLOAT, tau_gyro_x, &g_self.tau_gyro.x)  // compare to torquex
-LOG_ADD(LOG_FLOAT, tau_gyro_y, &g_self.tau_gyro.y)  // compare to torquey
-LOG_ADD(LOG_FLOAT, tau_gyro_z, &g_self.tau_gyro.z)  // compare to torquez
+LOG_ADD(LOG_FLOAT, tau_imu_x, &g_self.tau_imu.x)  // compare to torquex
+LOG_ADD(LOG_FLOAT, tau_imu_y, &g_self.tau_imu.y)  // compare to torquey
+LOG_ADD(LOG_FLOAT, tau_imu_z, &g_self.tau_imu.z)  // compare to torquez
 
-LOG_ADD(LOG_FLOAT, tau_gyro_fx, &g_self.tau_gyro_filtered.x)  // compare to torquex
-LOG_ADD(LOG_FLOAT, tau_gyro_fy, &g_self.tau_gyro_filtered.y)  // compare to torquey
-LOG_ADD(LOG_FLOAT, tau_gyro_fz, &g_self.tau_gyro_filtered.z)  // compare to torquez
+LOG_ADD(LOG_FLOAT, tau_imu_fx, &g_self.tau_imu_filtered.x)  // compare to torquex
+LOG_ADD(LOG_FLOAT, tau_imu_fy, &g_self.tau_imu_filtered.y)  // compare to torquey
+LOG_ADD(LOG_FLOAT, tau_imu_fz, &g_self.tau_imu_filtered.z)  // compare to torquez
 
 LOG_ADD(LOG_FLOAT, a_rpmx, &g_self.a_rpm.x)
 LOG_ADD(LOG_FLOAT, a_rpmy, &g_self.a_rpm.y)

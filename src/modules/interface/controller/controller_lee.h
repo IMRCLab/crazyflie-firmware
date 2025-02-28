@@ -55,8 +55,8 @@ typedef struct controllerLee_s {
     float f_rpm;
     struct vec tau_rpm;
     struct vec tau_rpm_filtered;
-    struct vec tau_gyro_filtered;
-    struct vec tau_gyro;
+    struct vec tau_imu_filtered;
+    struct vec tau_imu;
 
     struct vec a_rpm;
     struct vec a_rpm_filtered;
