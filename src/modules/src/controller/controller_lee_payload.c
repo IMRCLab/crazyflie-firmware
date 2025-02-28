@@ -1387,6 +1387,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     struct vec plPos_d = mkvec(setpoint->position.x, setpoint->position.y, setpoint->position.z);
     struct vec plVel_d = mkvec(setpoint->velocity.x, setpoint->velocity.y, setpoint->velocity.z);
     struct vec plAcc_d = mkvec(setpoint->acceleration.x, setpoint->acceleration.y, setpoint->acceleration.z + GRAVITY_MAGNITUDE);
+    struct vec plJerk_d = mkvec(setpoint->jerk.x, setpoint->jerk.y, setpoint->jerk.z);
 
     struct vec statePos = mkvec(state->position.x, state->position.y, state->position.z);
     struct vec stateVel = mkvec(state->velocity.x, state->velocity.y, state->velocity.z);
@@ -1649,7 +1650,14 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     struct mat33 skewqi2 = mmul(skewqi,skewqi);
 
     if (self->desVirtInp_tick != self->qdi_prev_tick) {
-      if (self->en_qdidot) {
+      if (self->en_qdidot == 2) {
+        // use differential flatness (Tang, Appendix B)):
+        // wdi = m/Td plJerk_d x qdi
+        // qdidot = wdi x qdi
+        float T_d = vmag(self->desVirtInp);
+        struct vec wdi = vcross(vscl(self->mp / T_d, plJerk_d), self->qdi);
+        self->qdidot = vcross(wdi, self->qdi);
+      } else if (self->en_qdidot == 1) {
         // self->qdidot = self->qid_ref;
         uint64_t timestamp_qdidot = usecTimestamp();
         struct vec qdidot_unfiltered;
