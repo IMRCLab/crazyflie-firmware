@@ -42,6 +42,12 @@
 // Requires kbuild config ENABLE_AUTO_SHUTDOWN to be activated.
 #define DEFAULT_SYSTEM_SHUTDOWN_TIMEOUT_MIN       5
 
+// Drone physical constants
+// m
+#define ARM_LENGTH  0.065f
+// kg
+#define CF_MASS     0.150f
+
 // Default PID gains
 #define PID_ROLL_RATE_KP  250.0
 #define PID_ROLL_RATE_KI  500.0
@@ -123,3 +129,5 @@
 #define PID_POS_VEL_X_MAX 1.0f
 #define PID_POS_VEL_Y_MAX 1.0f
 #define PID_POS_VEL_Z_MAX 1.0f
+
+#define CONFIG_MOTORS_DEFAULT_IDLE_THRUST 5000

@@ -36,6 +36,7 @@
 #include "config.h"
 #include "math.h"
 #include "platform_defaults.h"
+#include "pm.h"
 
 #if (!defined(CONFIG_MOTORS_REQUIRE_ARMING) || (CONFIG_MOTORS_REQUIRE_ARMING == 0)) && defined(CONFIG_MOTORS_DEFAULT_IDLE_THRUST) && (CONFIG_MOTORS_DEFAULT_IDLE_THRUST > 0)
     #error "CONFIG_MOTORS_REQUIRE_ARMING must be defined and not set to 0 if CONFIG_MOTORS_DEFAULT_IDLE_THRUST is greater than 0"
@@ -50,11 +51,11 @@ static uint32_t idleThrust = DEFAULT_IDLE_THRUST;
 static float armLength = ARM_LENGTH; // m
 static float thrustToTorque = 0.005964552f;
 
-// thrust = a * pwm^2 + b * pwm
-//    where PWM is normalized (range 0...1)
-//          thrust is in Newtons (per rotor)
-static float pwmToThrustA = 0.091492681f;
-static float pwmToThrustB = 0.067673604f;
+// pwm = a + b * thrust + c * vbat * thrust
+// where pwm is normalized [0...1], thrust is in Newtons (per motor), and vbat in volts
+static float thrustToPwmA = 0.14693110280690003f;
+static float thrustToPwmB = 0.1398299348424192f;
+static float thrustToPwmC = -0.012043863819880611f;
 
 int powerDistributionMotorType(uint32_t id)
 {
@@ -120,7 +121,8 @@ static void powerDistributionForceTorque(const control_t *control, motors_thrust
       motorForce = 0.0f;
     }
 
-    float motor_pwm = (-pwmToThrustB + sqrtf(pwmToThrustB * pwmToThrustB + 4.0f * pwmToThrustA * motorForce)) / (2.0f * pwmToThrustA);
+    float vbat = pmGetBatteryVoltage();
+    float motor_pwm = thrustToPwmA + thrustToPwmB * motorForce + thrustToPwmC * vbat * motorForce;
     motorThrustUncapped->list[motorIndex] = motor_pwm * UINT16_MAX;
   }
 }
@@ -190,8 +192,10 @@ uint32_t powerDistributionGetIdleThrust()
 
 float powerDistributionGetMaxThrust() {
   // max thrust per rotor occurs if normalized PWM is 1
-  // pwmToThrustA * pwm * pwm + pwmToThrustB * pwm = pwmToThrustA + pwmToThrustB
-  return STABILIZER_NR_OF_MOTORS * (pwmToThrustA + pwmToThrustB);
+  // thrust = (pwm - a) / (b + c * vbat)
+
+  float vbat = pmGetBatteryVoltage();
+  return STABILIZER_NR_OF_MOTORS * (1.0f - thrustToPwmA) / (thrustToPwmB + thrustToPwmC * vbat);
 }
 
 /**
@@ -214,8 +218,9 @@ PARAM_GROUP_STOP(powerDist)
 PARAM_GROUP_START(quadSysId)
 
 PARAM_ADD(PARAM_FLOAT, thrustToTorque, &thrustToTorque)
-PARAM_ADD(PARAM_FLOAT, pwmToThrustA, &pwmToThrustA)
-PARAM_ADD(PARAM_FLOAT, pwmToThrustB, &pwmToThrustB)
+PARAM_ADD(PARAM_FLOAT, thrustToPwmA, &thrustToPwmA)
+PARAM_ADD(PARAM_FLOAT, thrustToPwmB, &thrustToPwmB)
+PARAM_ADD(PARAM_FLOAT, thrustToPwmC, &thrustToPwmC)
 
 /**
  * @brief Length of arms (m)
