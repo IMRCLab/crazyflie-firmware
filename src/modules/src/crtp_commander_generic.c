@@ -436,6 +436,7 @@ static void fullStateDecoder(setpoint_t *setpoint, uint8_t type, const void *dat
   setpoint->acceleration.x = (values->a ## x) / 1000.0f; \
   setpoint->jerk.x = 0.0f; \
   setpoint->snap.x = 0.0f; \
+
   UNPACK(x)
   UNPACK(y)
   UNPACK(z)
