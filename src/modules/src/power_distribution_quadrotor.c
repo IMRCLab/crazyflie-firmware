@@ -123,6 +123,14 @@ static void powerDistributionForceTorque(const control_t *control, motors_thrust
 
     float vbat = pmGetBatteryVoltage();
     float motor_pwm = thrustToPwmA + thrustToPwmB * motorForce + thrustToPwmC * vbat * motorForce;
+
+    static int counter = 0;
+    if (counter % 1000 == 0) {
+      DEBUG_PRINT("f %f %f %f\n", (double)vbat, (double)motorForce, (double)motor_pwm);
+    }
+    ++counter;
+
+
     motorThrustUncapped->list[motorIndex] = motor_pwm * UINT16_MAX;
   }
 }
