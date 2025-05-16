@@ -712,6 +712,21 @@ LOG_ADD_CORE(LOG_FLOAT, vy, &state.velocity.y)
 LOG_ADD_CORE(LOG_FLOAT, vz, &state.velocity.z)
 
 /**
+ * @brief The velocity of the Crazyflie in the local reference frame, X [m/s]
+ */
+LOG_ADD_CORE(LOG_FLOAT, vxb, &state.velocity_body.x)
+
+/**
+ * @brief The velocity of the Crazyflie in the local reference frame, Y [m/s]
+ */
+LOG_ADD_CORE(LOG_FLOAT, vyb, &state.velocity_body.y)
+
+/**
+ * @brief The velocity of the Crazyflie in the local reference frame, Z [m/s]
+ */
+LOG_ADD_CORE(LOG_FLOAT, vzb, &state.velocity_body.z)
+
+/**
  * @brief The acceleration of the Crazyflie in the global reference frame, X [Gs]
  */
 LOG_ADD_CORE(LOG_FLOAT, ax, &state.acc.x)

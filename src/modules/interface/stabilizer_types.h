@@ -178,7 +178,8 @@ typedef struct state_s {
   attitude_t attitude;      // deg (legacy CF2 body coordinate system, where pitch is inverted)
   quaternion_t attitudeQuaternion;
   point_t position;         // m
-  velocity_t velocity;      // m/s
+  velocity_t velocity;      // m/s (world frame)
+  velocity_t velocity_body; // m/s (body frame)
   acc_t acc;                // Gs (but acc.z without considering gravity)
 } state_t;
 

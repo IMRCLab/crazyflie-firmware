@@ -755,6 +755,12 @@ void kalmanCoreExternalizeState(const kalmanCoreData_t* this, state_t *state, co
       .z = this->R[2][0]*this->S[KC_STATE_PX] + this->R[2][1]*this->S[KC_STATE_PY] + this->R[2][2]*this->S[KC_STATE_PZ]
   };
 
+  state->velocity_body = (velocity_t){
+    .x = this->S[KC_STATE_PX],
+    .y = this->S[KC_STATE_PY],
+    .z = this->S[KC_STATE_PZ]
+};
+
   // Accelerometer measurements are in the body frame and need to be rotated to world frame.
   // Furthermore, the legacy code requires acc.z to be acceleration without gravity.
   // Finally, note that these accelerations are in Gs, and not in m/s^2, hence - 1 for removing gravity
