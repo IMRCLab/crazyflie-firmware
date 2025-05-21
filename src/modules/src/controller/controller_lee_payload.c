@@ -1297,11 +1297,11 @@ void controllerLeePayloadInit(controllerLeePayload_t* self)
   time_start = usecTimestamp();
 
   for (int8_t i = 0; i < 3; i++) {
-    const float cutoff = 20; // Hz
-    const float cutoff_acc = 20; // Hz
+    const float cutoff = 10; // Hz
+    const float cutoff_acc = 10; // Hz
     init_butterworth_2_low_pass(&filter_payload_vel[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
     init_butterworth_2_low_pass(&filter_payload_acc[i], 1 / (2 * M_PI_F * cutoff_acc), 1.0 / ATTITUDE_RATE, 0.0f);
-    init_butterworth_2_low_pass(&filter_qdidot[i], 1 / (2 * M_PI_F * cutoff_acc), 1.0 / ATTITUDE_RATE, 0.0f);
+    init_butterworth_2_low_pass(&filter_qdidot[i], 1 / (2 * M_PI_F * 0.5f /*Hz*/), 1.0 / ATTITUDE_RATE, 0.0f);
     init_butterworth_2_low_pass(&filter_qidot[i], 1 / (2 * M_PI_F * cutoff_acc), 1.0 / ATTITUDE_RATE, 0.0f);
   }
 
@@ -1590,7 +1590,10 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     //   }
     // }
 
-    struct vec f_indi_payload = vadd(vscl(self->mp, acc_), vscl(self->tension, self->qi));
+    struct vec f_indi_payload = vzero();
+    if ((self->indi & 1) && rpm_deck_available) {
+      f_indi_payload = vadd(vscl(self->mp, acc_), vscl(self->tension, self->qi));
+    }
     self->F_d = vsub(vscl(self->mp ,vadd5(
           veltmul(self->Kpos_A, vsub(plAcc_d, acc_)),
           plAcc_d,
@@ -1663,7 +1666,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       // float dt = (timestamp_qidot - self->timestamp_qidot_prev) / 1e6;
       // qidot_unfiltered = vdiv(vsub(self->qi, self->qi_prev), dt);
       // update_butterworth_2_low_pass_vec(filter_qidot, qidot_unfiltered);
-      // self->qidot = get_butterworth_2_low_pass_vec(filter_qdidot);
+      // self->qidot = get_butterworth_2_low_pass_vec(filter_qidot);
       // self->qi_prev = self->qi;
       // self->timestamp_qidot_prev = timestamp_qidot;
     }
@@ -1689,15 +1692,15 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     struct mat33 skewqi = mcrossmat(self->qi);
     struct mat33 skewqi2 = mmul(skewqi,skewqi);
 
-    if (self->desVirtInp_tick != self->qdi_prev_tick) {
-      if (self->en_qdidot == 2) {
-        // use differential flatness (Tang, Appendix B)):
-        // wdi = m/Td plJerk_d x qdi
-        // qdidot = wdi x qdi
-        float T_d = vmag(self->desVirtInp);
-        struct vec wdi = vcross(vscl(self->mp / T_d, plJerk_d), self->qdi);
-        self->qdidot = vcross(wdi, self->qdi);
-      } else if (self->en_qdidot == 1) {
+    if (self->en_qdidot == 2) {
+      // use differential flatness (Tang, Appendix B)):
+      // wdi = m/Td plJerk_d x qdi
+      // qdidot = wdi x qdi
+      float T_d = vmag(self->desVirtInp);
+      struct vec wdi = vcross(vscl(self->mp / T_d, plJerk_d), self->qdi);
+      self->qdidot = vcross(wdi, self->qdi);
+    } else if (self->en_qdidot == 1) {
+      // if (self->desVirtInp_tick != self->qdi_prev_tick) {
         // self->qdidot = self->qid_ref;
         uint64_t timestamp_qdidot = usecTimestamp();
         struct vec qdidot_unfiltered;
@@ -1707,10 +1710,13 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
         self->qdidot = get_butterworth_2_low_pass_vec(filter_qdidot);
         self->qdi_prev = self->qdi;
         self->timestamp_qdidot_prev = timestamp_qdidot;
-      } else {
-        self->qdidot = vzero();
-      }
+        // self->qdidot = vzero();
+
+      // }
+    } else {
+      self->qdidot = vzero();
     }
+    struct vec qdidot_fake = vzero();
     struct vec wdi = vcross(self->qdi, self->qdidot);
     struct vec ew = vadd(wi, mvmul(skewqi2, wdi));
 
@@ -1749,8 +1755,8 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     self->rpy = quat2rpy(self->q);
     self->R = quat2rotmat(self->q);
 
-    if (self->use_nn)
-    {
+    // if (self->use_nn)
+    // {
       // First two columns of the rotation matrix
       self->input_vec[0] = self->R.m[0][0];
       self->input_vec[1] = self->R.m[0][1];
@@ -1776,6 +1782,21 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       self->input_vec[17] = motorsGetRatio(2) / 10000.f;
       self->input_vec[18] = motorsGetRatio(3) / 10000.f;
 
+      // // acc [m/s^2]
+      // self->input_vec[19] = self->plAcc_filtered.x;
+      // self->input_vec[20] = self->plAcc_filtered.y;
+      // self->input_vec[21] = self->plAcc_filtered.z;
+
+      // // vel [mm/s]; TODO: should be switched to filtered version...
+      // self->input_vec[22] = self->plVel_filtered.x;
+      // self->input_vec[23] = self->plVel_filtered.y;
+      // self->input_vec[24] = self->plVel_filtered.z;
+
+      // // pos [mm]
+      // self->input_vec[25] = plStPos.x * 1000.0f;
+      // self->input_vec[26] = plStPos.y * 1000.0f;
+      // self->input_vec[27] = plStPos.z * 1000.0f;
+
       const float *model_output = nn_forward(self->input_vec);
       self->nn_output[0] = model_output[0];
       self->nn_output[1] = model_output[1];
@@ -1783,7 +1804,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       self->nn_output[3] = model_output[3];
       self->nn_output[4] = model_output[4];
       self->nn_output[5] = model_output[5];
-    }
+    // }
 
     struct vec a_nn = vzero();
     if (self->use_nn & 1) {
@@ -1912,7 +1933,8 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
   {
     float T_des = vmag(self->desVirtInp);
     struct vec q_des = self->qdi;
-    struct vec q_des_dot = self->qdidot;
+    // struct vec q_des_dot = self->qdidot;
+    struct vec q_des_dot = qdidot_fake;
 
     float T_des_dot = -self->mp * vdot(plJerk_d, q_des);
     float T_des_ddot = -self->mp * (vdot(plSnap_d, q_des) + vdot(plJerk_d, q_des_dot));
@@ -2010,7 +2032,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     self->timestamp_prev = timestamp;
 
     indi_moments = vsub(self->tau_imu_filtered, self->tau_rpm_filtered);
-    // indi_moments.z = 0.0f;
+    indi_moments.z = 0.0f;
     // self->u = vsub(self->u, indi_moments);
 
     // // DEBUG

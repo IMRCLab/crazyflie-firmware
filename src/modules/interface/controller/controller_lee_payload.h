@@ -202,6 +202,7 @@ typedef struct controllerLeePayload_s {
     
     // Neural network
     uint8_t use_nn;
+    // float input_vec[28];
     float input_vec[19];
     float nn_output[6];
 

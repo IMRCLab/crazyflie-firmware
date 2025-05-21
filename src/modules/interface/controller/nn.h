@@ -3,6 +3,7 @@
 #ifndef __GEN_NN__
 #define __GEN_NN__
 
+// #define INPUT_SIZE 28
 #define INPUT_SIZE 19
 #define OUTPUT_SIZE 6
 
