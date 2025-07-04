@@ -1458,7 +1458,8 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, setp
 
     
     // Compute parallel component
-    struct vec acc_ = vscl(1/self->mp, self->F_d);
+    // struct vec acc_ = vscl(1/self->mp, self->F_d);
+    struct vec acc_ = plAcc_d;
     if (!isnanf(plquat.w)) {
       if (self->en_accrb) {
         acc_ = vadd(plAcc_d, qvrot(plquat, mvmul(mmul(mcrossmat(plomega), mcrossmat(plomega)), attPoint)));
