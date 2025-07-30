@@ -30,17 +30,19 @@ TODO
 
 #include <math.h>
 #include <string.h>
+#ifdef CRAZYFLIE_FW
 #include <motors.h>
-
+#include "log.h"
+#include "param.h"
+#include "nn.h"
+#include "usec_time.h"
+#endif
 #include "math3d.h"
 #include "controller_lee_payload.h"
 #include "stdio.h"
 #include "debug.h"
-#include "usec_time.h"
 #include "filter.h"
 
-#include "log.h"
-#include "param.h"
 
 #include "physicalConstants.h"
 #include "power_distribution.h"
@@ -51,8 +53,6 @@ TODO
 #include "scaling.h"
 #include "auxil.h"
 
-#include "nn.h"
-#include "usec_time.h"
 float nn_inference_time_payload;
 
 extern OSQPWorkspace workspace_2uav_2hp;
@@ -665,7 +665,7 @@ static bool compute_Fd_pair_qp(struct quat payload_quat, struct vec attPoint1, s
 
 
 static controllerLeePayload_t g_self = {
-  .mass = 0.034,
+  .mass = 0.0356,
   .mp   = 0.01,
   // Inertia matrix (diagonal matrix), see
   // System Identification of the Crazyflie 2.0 Nano Quadrocopter
@@ -680,7 +680,6 @@ static controllerLeePayload_t g_self = {
   .Kpos_D_limit = 100,
   .Kpos_I ={10, 10, 10},
   .Kpos_I_limit = 0,
-  .Kpos_A ={2, 2, 2},
 
   // Payload attitude gains
 
@@ -733,13 +732,15 @@ static controllerLeePayload_t g_self = {
   .use_nn = 0,
 };
 
-
+#ifdef CRAZYFLIE_FW
 static bool rpm_deck_available;
 static logVarId_t logVarRpm1;
 static logVarId_t logVarRpm2;
 static logVarId_t logVarRpm3;
 static logVarId_t logVarRpm4;
-
+#else
+static bool rpm_deck_available;
+#endif
 static Butterworth2LowPass filter_acc_rpm[3];
 static Butterworth2LowPass filter_acc_imu[3];
 static Butterworth2LowPass filter_tau_rpm[3];
@@ -1276,7 +1277,7 @@ void controllerLeePayloadReset(controllerLeePayload_t* self)
   self->payload_vel_prev = vzero();
   self->qdi_prev = vzero();
   self->desVirtInp = vzero();
-  self->prev_q_des = mkquat(0, 0, 0, 1);
+  self->prev_quat_des = mkquat(0, 0, 0, 1);
   
   self->delta_bar_x0 = vzero();
   self->delta_bar_R0 = vzero();
@@ -1292,27 +1293,29 @@ void controllerLeePayloadInit(controllerLeePayload_t* self)
 {
   // copy default values (bindings), or NOP (firmware)
   *self = g_self;
-  DEBUG_PRINT("R3\n");
   controllerLeePayloadReset(self);
+  #ifdef CRAZYFLIE_FW
   time_start = usecTimestamp();
-
+  #endif
   for (int8_t i = 0; i < 3; i++) {
-    const float cutoff = 10; // Hz
+    const float cutoff = 15; // Hz
     const float cutoff_acc = 10; // Hz
     init_butterworth_2_low_pass(&filter_payload_vel[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
     init_butterworth_2_low_pass(&filter_payload_acc[i], 1 / (2 * M_PI_F * cutoff_acc), 1.0 / ATTITUDE_RATE, 0.0f);
     init_butterworth_2_low_pass(&filter_qdidot[i], 1 / (2 * M_PI_F * 0.5f /*Hz*/), 1.0 / ATTITUDE_RATE, 0.0f);
     init_butterworth_2_low_pass(&filter_qidot[i], 1 / (2 * M_PI_F * cutoff_acc), 1.0 / ATTITUDE_RATE, 0.0f);
   }
+  #ifdef CRAZYFLIE_FW
+    paramVarId_t idDeckBcRpm = paramGetVarId("deck", "bcRpm");
+    logVarRpm1 = logGetVarId("rpm", "m1");
+    logVarRpm2 = logGetVarId("rpm", "m2");
+    logVarRpm3 = logGetVarId("rpm", "m3");
+    logVarRpm4 = logGetVarId("rpm", "m4");
 
-  paramVarId_t idDeckBcRpm = paramGetVarId("deck", "bcRpm");
-  logVarRpm1 = logGetVarId("rpm", "m1");
-  logVarRpm2 = logGetVarId("rpm", "m2");
-  logVarRpm3 = logGetVarId("rpm", "m3");
-  logVarRpm4 = logGetVarId("rpm", "m4");
-
-  rpm_deck_available = (paramGetUint(idDeckBcRpm) == 1);
-
+    rpm_deck_available = (paramGetUint(idDeckBcRpm) == 1);
+  #else
+      rpm_deck_available = false;
+  #endif
   const float cutoff = 30; // Hz
 	for (int8_t i = 0; i < 3; i++) {
 		init_butterworth_2_low_pass(&filter_acc_rpm[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
@@ -1328,15 +1331,15 @@ void controllerLeePayloadInit(controllerLeePayload_t* self)
 		init_butterworth_2_low_pass(&filter_tau_rpm[2], 1 / (2 * M_PI_F * cutoff_z), 1.0 / ATTITUDE_RATE, 0.0f);
 		init_butterworth_2_low_pass(&filter_tau_imu[2], 1 / (2 * M_PI_F * cutoff_z), 1.0 / ATTITUDE_RATE, 0.0f);
 
-
-  self->timestamp_prev = usecTimestamp();
-  self->omega_prev = vzero();
-  
-  // Acceleration estimation
-  self->payload_vel_prev = vzero();
-  self->timestamp_payload_prev = usecTimestamp();
-  self->timestamp_qdidot_prev = usecTimestamp();
-  self->timestamp_qidot_prev = usecTimestamp();
+  #ifdef CRAZYFLIE_FW
+    self->timestamp_prev = usecTimestamp();
+    self->omega_prev = vzero();
+    // Acceleration estimation
+    self->payload_vel_prev = vzero();
+    self->timestamp_payload_prev = usecTimestamp();
+    self->timestamp_qdidot_prev = usecTimestamp();
+    self->timestamp_qidot_prev = usecTimestamp();
+  #endif
 }
 
 bool controllerLeePayloadTest(controllerLeePayload_t* self)
@@ -1353,58 +1356,65 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     return;
   }
 
-  // uint64_t startTime = usecTimestamp();
 
   float dt = (float)(1.0f/ATTITUDE_RATE);
 
   // INDI
   float t1 = 0.0f, t2 = 0.0f, t3 = 0.0f, t4 = 0.0f;
-  if (self->indi && rpm_deck_available) {
-    // compute expected acceleration based on rpm measurements (world frame)
-    uint16_t rpm1 = logGetUint(logVarRpm1);
-    uint16_t rpm2 = logGetUint(logVarRpm2);
-    uint16_t rpm3 = logGetUint(logVarRpm3);
-    uint16_t rpm4 = logGetUint(logVarRpm4);
+  #ifdef CRAZYFLIE_FW
+    if (self->indi && rpm_deck_available) {
+      // compute expected acceleration based on rpm measurements (world frame)
+      uint16_t rpm1 = logGetUint(logVarRpm1);
+      uint16_t rpm2 = logGetUint(logVarRpm2);
+      uint16_t rpm3 = logGetUint(logVarRpm3);
+      uint16_t rpm4 = logGetUint(logVarRpm4);
 
-    t1 = kappa_f[0] * powf(rpm1, 2);
-    t2 = kappa_f[1] * powf(rpm2, 2);
-    t3 = kappa_f[2] * powf(rpm3, 2);
-    t4 = kappa_f[3] * powf(rpm4, 2);
+      t1 = kappa_f[0] * powf(rpm1, 2);
+      t2 = kappa_f[1] * powf(rpm2, 2);
+      t3 = kappa_f[2] * powf(rpm3, 2);
+      t4 = kappa_f[3] * powf(rpm4, 2);
 
-    // DEBUG
-    if (tick % 500 == 0) {
+      // DEBUG
+      if (tick % 500 == 0) {
       
       DEBUG_PRINT("INDI t %f %f %f %f\n", (double)t1, (double)t2, (double)t3, (double)t4);
+      }
     }
-  }
-
+  #endif
 
   // Position controller
-  /*
-  if (   setpoint->mode.x == modeAbs
-      || setpoint->mode.y == modeAbs
-      || setpoint->mode.z == modeAbs) {  
-    */
    struct vec plPos_d = mkvec(setpoint->position.x, setpoint->position.y, setpoint->position.z);
    struct vec plVel_d = mkvec(setpoint->velocity.x, setpoint->velocity.y, setpoint->velocity.z);
-   struct vec plAcc_d = mkvec(setpoint->acceleration.x, setpoint->acceleration.y, setpoint->acceleration.z + GRAVITY_MAGNITUDE);
+   struct vec plAcc_d = mkvec(setpoint->acceleration.x, setpoint->acceleration.y, setpoint->acceleration.z);
+   struct vec g_comp  = mkvec(0, 0, GRAVITY_MAGNITUDE);
    struct vec plJerk_d = mkvec(setpoint->jerk.x, setpoint->jerk.y, setpoint->jerk.z);
    struct vec plSnap_d = mkvec(setpoint->snap.x, setpoint->snap.y, setpoint->snap.z);
    struct vec plSnapd_d = mkvec(setpoint->snapd.x, setpoint->snapd.y, setpoint->snapd.z);
  
-   float desiredYawUAV = 0.0f;
+    float desiredYawUAV = radians(setpoint->attitude.yaw);
    struct vec xc = mkvec(cosf(desiredYawUAV), sinf(desiredYawUAV), 0);
    struct vec yc = mkvec(-sinf(desiredYawUAV), cosf(desiredYawUAV), 0);
 
     struct vec statePos = mkvec(state->position.x, state->position.y, state->position.z);
     struct vec stateVel = mkvec(state->velocity.x, state->velocity.y, state->velocity.z);
     struct vec plStPos = mkvec(state->payload_pos.x, state->payload_pos.y, state->payload_pos.z);
+    #ifdef CRAZYFLIE_FW
     struct vec plStVel_unfiltered = mkvec(state->payload_vel.x, state->payload_vel.y, state->payload_vel.z);
 
     update_butterworth_2_low_pass_vec(filter_payload_vel, plStVel_unfiltered);
 
     struct vec plStVel = get_butterworth_2_low_pass_vec(filter_payload_vel);
     self->plVel_filtered = plStVel;
+    #else
+    // struct vec plStVel_unfiltered = mkvec(state->payload_vel.x, state->payload_vel.y, state->payload_vel.z);
+
+    // update_butterworth_2_low_pass_vec(filter_payload_vel, plStVel_unfiltered);
+
+    // struct vec plStVel = get_butterworth_2_low_pass_vec(filter_payload_vel);
+    // self->plVel_filtered = plStVel;
+    struct vec plStVel = mkvec(state->payload_vel.x, state->payload_vel.y, state->payload_vel.z);
+    self->plVel_filtered = plStVel;
+    #endif
     // rotational states of the payload
     struct quat plquat = mkquat(state->payload_quat.x, state->payload_quat.y, state->payload_quat.z, state->payload_quat.w);
     struct vec plomega = mkvec(state->payload_omega.x, state->payload_omega.y, state->payload_omega.z);
@@ -1414,14 +1424,6 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     struct vec plvel_e = vclampnorm(vsub(plVel_d, plStVel), self->Kpos_D_limit);
     self->i_error_pos = vclampnorm(vadd(self->i_error_pos, vscl(dt, plpos_e)), self->Kpos_I_limit);
 
-    // static int counter = 0;
-    // ++counter;
-    // if (counter % 1000 == 0) {
-    //   DEBUG_PRINT("desPos: %f %f %f\n", (double) plPos_d.x, (double) plPos_d.y, (double) plPos_d.z);
-    //   DEBUG_PRINT("setpoint: %f %f %f\n", (double) setpoint->position.x, (double) setpoint->position.y, (double) setpoint->position.z);
-    //   DEBUG_PRINT("PlStPos: %f %f %f\n", (double) plStPos.x, (double) plStPos.y, (double) plStPos.z);
-    // }
-    // Lee's integral error (30)
     self->delta_bar_x0 = vadd(self->delta_bar_x0, vscl(self->h_x0/self->mp*dt, vadd(plvel_e, vscl(self->c_x, plpos_e))));
 
     struct vec attPoint = mkvec(0, 0, 0);
@@ -1445,49 +1447,6 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
         break;
       }
     }
-
-    // Set corresponding desired cable angles points
-    // static int counter = 0;
-    // if (counter % 100 == 0) {
-    //   DEBUG_PRINT("formation control: %d\n", self->formation_control);
-    //   DEBUG_PRINT("cable nums %d\n", setpoint->num_cables);
-    //   DEBUG_PRINT("num of neighbors: %d\n", state->num_neighbors);
-    // }
-    // counter++;
-
-    // for (uint8_t i = 0; i < state->num_uavs; ++i) {
-    //   for (uint8_t j = 0; j < state->num_uavs; ++j) {
-    //     if (setpoint->cableAngles[j].id == state->team_state[i].id) {
-    //       float az = setpoint->cableAngles[j].az;
-    //       float el = setpoint->cableAngles[j].el;
-    //       self->desiredCableUnitVec[i] = computeUnitVec(az, el);
-    //       break;
-    //     }
-    //   }  
-    // }
-    // for (uint8_t i = 0; i < setpoint->num_cables; ++i) {
-    //   // DEBUG_PRINT("num of neighbors: %d\n", state->num_neighbors);
-    //   // DEBUG_PRINT("setpoint id: %d\n", setpoint->cableAngles[i].id);
-    //   // DEBUG_PRINT("uav id 1: %d\n", state->neighbors[0].id);
-    //   // DEBUG_PRINT("uav id 2: %d\n", state->neighbors[1].id);
-      
-    //   if (state->num_neighbors > 0 && setpoint->cableAngles[i].id == state->neighbors[0].id) {
-    //     float az2 = setpoint->cableAngles[i].az;
-    //     float el2 = setpoint->cableAngles[i].el;
-    //     self->desiredCableUnitVec[1] = computeUnitVec(az2, el2);
-    //   } else if (state->num_neighbors > 1 && setpoint->cableAngles[i].id == state->neighbors[1].id) {
-    //     float az3 = setpoint->cableAngles[i].az;
-    //     float el3 = setpoint->cableAngles[i].el;        
-    //     self->desiredCableUnitVec[2] = computeUnitVec(az3, el3);
-        
-    //   } else {
-    //     float az = setpoint->cableAngles[i].az;
-    //     float el = setpoint->cableAngles[i].el;
-    //     self->desiredCableUnitVec[0] = computeUnitVec(az, el);
-    //   }
-    // }
-    // DEBUG_PRINT("qi = [%f, %f, %f]\n", (double) self->desiredCableUnitVec.x, (double) self->desiredCableUnitVec.y, (double) self->desiredCableUnitVec.z);
-    // DEBUG_PRINT("qi2 = [%f, %f, %f]\n", (double) self->desiredCableUnitVec2.x, (double) self->desiredCableUnitVec2.y, (double) self->desiredCableUnitVec2.z);
     if (!isnanf(plquat.w)) {
       // If the payload is a rigid body then the the attachment point should be added to PlStPos
       plStPos = vadd(plStPos, qvrot(plquat, attPoint));
@@ -1497,10 +1456,12 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     if (l <= 0) {
       l = vmag(vsub(plStPos, statePos));
     }
-
+    
+    // RIGID CASE
+    struct mat33 Rp = quat2rotmat(plquat);
+    {
     // payload orientation errors
     // payload quat to R 
-    struct mat33 Rp = quat2rotmat(plquat);
     // define desired payload Rp_des = eye(3) (i.e., qp_des = [0,0,0,1] (x,y,z,w))
 
     // Address inconsistency in firmware where we need to compute our own desired yaw angle
@@ -1514,98 +1475,65 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     } else if (setpoint->mode.quat == modeAbs) {
       self->qp_des = mkquat(setpoint->attitudeQuaternion.x, setpoint->attitudeQuaternion.y, setpoint->attitudeQuaternion.z, setpoint->attitudeQuaternion.w);
     }
- 
-    struct mat33 Rp_des = quat2rotmat(self->qp_des); 
-    // define orientation error     
-    // eRp =  msub(mmul(mtranspose(self->R_des), self->R), mmul(mtranspose(self->R), self->R_des));
-    struct mat33 eRMp =  msub(mmul(mtranspose(Rp_des), Rp), mmul(mtranspose(Rp), Rp_des));
-    struct vec eRp = vscl(0.5f, mkvec(eRMp.m[2][1], eRMp.m[0][2], eRMp.m[1][0]));
-    
-    self->i_error_pl_att = vclampnorm(vadd(self->i_error_pl_att, vscl(dt, eRp)), self->Kprot_I_limit);
-
-    self->wp_des = mkvec(radians(setpoint->attitudeRate.roll), radians(setpoint->attitudeRate.pitch), radians(setpoint->attitudeRate.yaw));
-    self->omega_pr = mvmul(mmul(mtranspose(Rp), Rp_des), self->wp_des);
-    struct vec omega_perror = vsub(plomega, self->omega_pr);
-
-    // Lees integral error (31)
-    self->delta_bar_R0 = vadd(self->delta_bar_R0, vscl(dt*self->h_R0, vadd(omega_perror, vscl(self->c_R, eRp))));
-
-    self->plp_error = plpos_e;
-    self->plv_error = plvel_e;
+      // define orientation error     
+      struct mat33 Rp_des = quat2rotmat(self->qp_des); 
+      struct mat33 eRMp =  msub(mmul(mtranspose(Rp_des), Rp), mmul(mtranspose(Rp), Rp_des));
+      struct vec eRp = vscl(0.5f, mkvec(eRMp.m[2][1], eRMp.m[0][2], eRMp.m[1][0]));
+      
+      self->i_error_pl_att = vclampnorm(vadd(self->i_error_pl_att, vscl(dt, eRp)), self->Kprot_I_limit);
+      
+      self->wp_des = mkvec(radians(setpoint->attitudeRate.roll), radians(setpoint->attitudeRate.pitch), radians(setpoint->attitudeRate.yaw));
+      self->omega_pr = mvmul(mmul(mtranspose(Rp), Rp_des), self->wp_des);
+      struct vec omega_perror = vsub(plomega, self->omega_pr);
+      
+      // Lees integral error (31)
+      self->delta_bar_R0 = vadd(self->delta_bar_R0, vscl(dt*self->h_R0, vadd(omega_perror, vscl(self->c_R, eRp))));
+      
+      self->plp_error = plpos_e;
+      self->plv_error = plvel_e;
+    }
 
 
     self->tension = 0;
-    // struct vec acc_ = vscl(1/self->mp, self->F_d);
-    struct vec acc_ = plAcc_d;
-    self->plAcc_des = plAcc_d;
-    if (self->est_acc == 1) {
-      struct vec plAcc_unfiltered = vzero();
+    #ifdef CRAZYFLIE_FW
+      struct vec acc_ = plAcc_d;
+      acc_ = vadd(acc_, g_comp);
+      self->plAcc_des = plAcc_d;
+    #else
+        struct vec acc_ = mkvec(state->payload_acc.x, state->payload_acc.y, state->payload_acc.z);
+        acc_ = vadd(acc_, g_comp);
+    #endif
+    #ifdef CRAZYFLIE_FW
+      if (self->est_acc == 1) {
+        struct vec plAcc_unfiltered = vzero();
 
-      uint64_t timestamp_payload = usecTimestamp();
-      float dt = (timestamp_payload - self->timestamp_payload_prev) / 1e6;
+        uint64_t timestamp_payload = usecTimestamp();
+        float dt = (timestamp_payload - self->timestamp_payload_prev) / 1e6;
 
-      plAcc_unfiltered = vdiv(vsub(plStVel, self->payload_vel_prev), dt);
-      update_butterworth_2_low_pass_vec(filter_payload_acc, plAcc_unfiltered);
-      self->plAcc_filtered = get_butterworth_2_low_pass_vec(filter_payload_acc);
-      self->plAcc_filtered.z += GRAVITY_MAGNITUDE;
-      acc_ = self->plAcc_filtered; 
-
-      self->payload_vel_prev = plStVel;
-      self->timestamp_payload_prev = timestamp_payload;
-    }
+        plAcc_unfiltered = vdiv(vsub(plStVel, self->payload_vel_prev), dt);
+        update_butterworth_2_low_pass_vec(filter_payload_acc, plAcc_unfiltered);
+        self->plAcc_filtered = get_butterworth_2_low_pass_vec(filter_payload_acc);
+        self->plAcc_filtered.z += GRAVITY_MAGNITUDE;
+        acc_ = self->plAcc_filtered; 
+        self->payload_vel_prev = plStVel;
+        self->timestamp_payload_prev = timestamp_payload;
+      }
+    #endif
     self->tension = self->mp * vmag(acc_); 
-      // self->tension = vdot(vscl(-self->mp, acc_), self->qi);
-      // acc_ = vscl(-self->tension/self->mp, self->qi);
-      // acc_ = plAcc_d;
-      self->plAcc_filtered = acc_;
-
-    // INDI
-    // struct vec f_indi = vzero();
-    // struct vec e3 = mkvec(0,0,1);
-    // if ((self->indi & 1) && rpm_deck_available) {
-
-    //   float f_rpm = t1 + t2 + t3 + t4;
-    //   // self->a_rpm = vadd(vadd(vsub(vscl(f_rpm / self->mass, mvmul(self->R, e3)), mkvec(0.0, 0.0, 9.81f)), vscl(self->tension/ self->mass, self->qi)), a_nn);
-    //   // self->a_rpm = vadd(vsub(vsub(vscl(f_rpm / self->mass, mvmul(self->R, e3)), mkvec(0.0, 0.0, 9.81f)), vscl(self->mp/self->mass, acc_)), a_nn);
-    //   // F_RPM(fuRe3 - mge3 - mpge3)
-
-    //   self->a_rpm = vsub2(vscl(f_rpm, mvmul(self->R, e3)),  mkvec(0.0, 0.0, self->mass*9.81f), mkvec(0.0, 0.0, self->mp*9.81f)); // THIS IS A FORCE
-    //   update_butterworth_2_low_pass_vec(filter_acc_rpm, self->a_rpm);
-
-    //   // f_IMU(mp*vpdot + m*vdot)
-    //   struct vec acc_payload_wo_grav = vsub(acc_, mkvec(0,0,GRAVITY_MAGNITUDE));
-    //   // compute acceleration based on IMU (world frame, SI unit, no gravity)
-    //   struct vec uav_acc = vscl(9.81, mkvec(state->acc.x, state->acc.y, state->acc.z));
-    //   self->a_imu = vadd(vscl(self->mp, acc_payload_wo_grav), vscl(self->mass, uav_acc)); // THIS IS A FORCE
-    //   update_butterworth_2_low_pass_vec(filter_acc_imu, self->a_imu);
-
-    //   self->a_rpm_filtered = get_butterworth_2_low_pass_vec(filter_acc_rpm); // NOTE: this is a force 
-    //   self->a_imu_filtered = get_butterworth_2_low_pass_vec(filter_acc_imu); // NOTE: this is a force
-
-    //   f_indi = vsub(self->a_imu_filtered, self->a_rpm_filtered);
-
-    //   // DEBUG
-    //   if (tick % 500 == 0) {
-    //     DEBUG_PRINT("INDI p %f %f %f, %f %f %f\n", (double)self->a_rpm_filtered.x, (double)self->a_rpm_filtered.y, (double)self->a_rpm_filtered.z, (double)self->a_imu_filtered.x, (double)self->a_imu_filtered.y, (double)self->a_imu_filtered.z);
-    //   }
-    // }
-
+    self->plAcc_filtered = acc_;
     struct vec f_indi_payload = vzero();
     if ((self->indi & 1) && rpm_deck_available) {
       f_indi_payload = vadd(vscl(self->mp, acc_), vscl(self->tension, self->qi));
     }
     self->F_d = vsub(vscl(self->mp ,vadd5(
-          veltmul(self->Kpos_A, vsub(plAcc_d, acc_)),
-          plAcc_d,
+          plAcc_d, g_comp,
           veltmul(self->Kpos_P, plpos_e),
           veltmul(self->Kpos_D, plvel_e),
           veltmul(self->Kpos_I, self->i_error_pos))), f_indi_payload);
 
     if (state->num_uavs > 1) {
       computeDesiredVirtualInput(self, state, setpoint, self->F_d, self->M_d, tick, &self->desVirtInp, &self->desVirtInp_tick);
-    }
-    else {
-      // DEBUG_PRINT("we are here\n");
+    } else {
       self->desVirtInp.x = self->F_d.x;
       self->desVirtInp.y = self->F_d.y;
       self->desVirtInp.z = self->F_d.z;
@@ -1620,55 +1548,20 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     
     // if we don't have a desVirtInp (yet), skip this 
     if (vmag2(self->desVirtInp) == 0) {
-      // float force = vmag(vscl(1/state->num_uavs, self->F_d));
-      // struct vec hover_force = mkvec(0,0,self->mp*GRAVITY_MAGNITUDE);
-      // struct vec qi_tmp = vneg(vnormalize(vsub(plStPos, statePos)));
-      // float force_i = vdot(hover_force, qi_tmp);
-      // self->desVirtInp = vscl(force_i, qi_tmp);
-      // self->desVirtInp.z = force;
-      // DEBUG_PRINT("before QP db: %f %f %f\n", (double)self->desVirtInp.x, (double)self->desVirtInp.y, (double)self->desVirtInp.z);
-
       float force = 9.81f * (self->mp / (state->num_uavs));
       struct vec qi_tmp = vnormalize(vsub(plStPos, statePos));
       self->desVirtInp = vsclnorm(vneg(qi_tmp), force);
       // self->desVirtInp.z = force;
       DEBUG_PRINT("before QP db: %f %f %f\n", (double)self->desVirtInp.x, (double)self->desVirtInp.y, (double)self->desVirtInp.z);
-      
-      // return; 
-    } else {
-      // uint64_t t = usecTimestamp();
-      // uint64_t delta = t - time_start;
-      // DEBUG_PRINT("dvit %llu us\n", delta);
-      // DEBUG_PRINT("db %f %f %f\n", (double)self->desVirtInp.x, (double)self->desVirtInp.y, (double)self->desVirtInp.z);
-      // time_start = t;
-    }
-
-    // // if we don't have a desVirtInp (yet), estimate it based on the current cable state
-    // if (vmag2(self->desVirtInp) == 0) {
-    //   float force = 9.81f * (self->mass + self->mp / (1.0f + state->num_neighbors));
-    //   self->desVirtInp = vsclnorm(vsub(plStPos, statePos), force); 
-    // }
-    // computed desired generalized forces in rigid payload case for equation 23 is Pmu_des = [Rp.T@F_d, M_d]
-    // if a point mass for the payload is considered then: Pmu_des = F_d
-
+    }   
     //directional unit vector qi and angular velocity wi pointing from UAV to payload
     self->qi = vnormalize(vsub(plStPos, statePos));
 
-    // from the text between (2) and (3) in Lee's paper
-    // qi_dot = (x0_dot + R0_dot rho_i - xi_dot)/li
     if (!isnanf(plquat.w)) {
       struct mat33 R0_dot = mmul(Rp, mcrossmat(plomega));
       self->qidot = vdiv(vsub(vadd(plStVel, mvmul(R0_dot, attPoint)), stateVel), l);
     } else {
       self->qidot = vdiv(vsub(plStVel, stateVel), l);
-      // uint64_t timestamp_qidot = usecTimestamp();
-      // struct vec qidot_unfiltered;
-      // float dt = (timestamp_qidot - self->timestamp_qidot_prev) / 1e6;
-      // qidot_unfiltered = vdiv(vsub(self->qi, self->qi_prev), dt);
-      // update_butterworth_2_low_pass_vec(filter_qidot, qidot_unfiltered);
-      // self->qidot = get_butterworth_2_low_pass_vec(filter_qidot);
-      // self->qi_prev = self->qi;
-      // self->timestamp_qidot_prev = timestamp_qidot;
     }
 
     struct vec wi = vcross(self->qi, self->qidot);
@@ -1683,7 +1576,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
         acc_ = vadd(plAcc_d, qvrot(plquat, mvmul(mmul(mcrossmat(plomega), mcrossmat(plomega)), attPoint)));
       }
     } 
-    struct vec u_parallel = vadd3(virtualInp, vscl(self->mass*l*vmag2(wi), self->qi), vscl(self->mass, mvmul(qiqiT, acc_)));
+    struct vec u_parallel = vadd3(virtualInp, vscl(self->mass*l*vmag2(wi), self->qi), vscl(self->mass/self->mp, mvmul(qiqiT, self->F_d)));
     
     // Compute Perpindicular Component
     self->qdi = vneg(vnormalize(self->desVirtInp));
@@ -1691,17 +1584,10 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     self->i_error_q = vadd(self->i_error_q, vscl(dt, eq));
     struct mat33 skewqi = mcrossmat(self->qi);
     struct mat33 skewqi2 = mmul(skewqi,skewqi);
+    struct vec wdi = vzero();
 
-    if (self->en_qdidot == 2) {
-      // use differential flatness (Tang, Appendix B)):
-      // wdi = m/Td plJerk_d x qdi
-      // qdidot = wdi x qdi
-      float T_d = vmag(self->desVirtInp);
-      struct vec wdi = vcross(vscl(self->mp / T_d, plJerk_d), self->qdi);
-      self->qdidot = vcross(wdi, self->qdi);
-    } else if (self->en_qdidot == 1) {
-      // if (self->desVirtInp_tick != self->qdi_prev_tick) {
-        // self->qdidot = self->qid_ref;
+    if (self->en_qdidot == 1) {
+        #ifdef CRAZYFLIE_FW
         uint64_t timestamp_qdidot = usecTimestamp();
         struct vec qdidot_unfiltered;
         float dt = (timestamp_qdidot - self->timestamp_qdidot_prev) / 1e6;
@@ -1711,50 +1597,28 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
         self->qdi_prev = self->qdi;
         self->timestamp_qdidot_prev = timestamp_qdidot;
         // self->qdidot = vzero();
-
-      // }
+        #endif
+    } else if  (self->en_qdidot == 2) {
+      // use differential flatness (Tang, Appendix B)):
+      float T_d = vmag(self->F_d);
+      wdi = vcross(vscl(self->mp / T_d, plJerk_d), self->qdi);
+      float T_dot = -self->mp*vdot(plJerk_d, self->qdi);
+      self->qdidot = vneg(vdiv(vadd(vscl(self->mp,plJerk_d), vscl(T_dot, self->qdi)) , T_d));
     } else {
       self->qdidot = vzero();
+      wdi = vcross(self->qdi, self->qdidot);
     }
-    struct vec qdidot_fake = vzero();
-    struct vec wdi = vcross(self->qdi, self->qdidot);
     struct vec ew = vadd(wi, mvmul(skewqi2, wdi));
-
-    // Lee's integral error (32)
-    {
-      struct vec part1 = vscl(1.0f/self->mp, vadd(plvel_e, vscl(self->c_x, plpos_e)));
-      struct vec part2 = vzero();
-      if (!isnanf(plquat.w)) {
-        struct mat33 part2a = mmul(Rp, mcrossmat(attPoint));
-        struct vec part2b = vadd(omega_perror, vscl(self->c_R, eRp));
-        part2 = mvmul(part2a, part2b);
-      }
-
-      struct vec term1 = vscl(self->h_xi, mvmul(qiqiT, vsub(part1, part2)));
-
-      struct vec term2 = vscl(self->h_xi / self->mass * l, mvmul(skewqi, vadd(ew, vscl(self->c_q, eq))));
-
-      self->delta_bar_xi = vadd(self->delta_bar_xi, vscl(dt, vadd(term1, term2)));
-    }
-
     // Lee (27)
     // this term ((vscl(vdot(self->qi, wdi), self->qidot)) is not negative in: 
     // https://ieeexplore.ieee.org/document/7040351 (not tested)
-    struct vec u_perpind = vsub2(
-      vscl(self->mass*l, mvmul(skewqi, vadd4(
-        vneg(veltmul(self->K_q, vclampnorm(eq, self->K_q_limit))),
-        vneg(veltmul(self->K_w, vclampnorm(ew, self->K_w_limit))),
-        vneg(veltmul(self->K_q_I, self->i_error_q)), // main difference to Lee: Lee multiplies again by skewqui and normalizes by cable length
-        vneg(vscl(vdot(self->qi, wdi), self->qidot))))),
-      vscl(self->mass, mvmul(skewqi2, acc_)),
-      vneg(mvmul(skewqi2, self->delta_bar_xi))
-    );
 
     // current rotation [R]
     self->q = mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w);
     self->rpy = quat2rpy(self->q);
     self->R = quat2rotmat(self->q);
-
+    struct vec a_nn = vzero();
+    #ifdef CRAZYFLIE_FW
     // if (self->use_nn)
     // {
       // First two columns of the rotation matrix
@@ -1806,247 +1670,220 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       self->nn_output[5] = model_output[5];
     // }
 
-    struct vec a_nn = vzero();
     if (self->use_nn & 1) {
       a_nn.x = self->nn_output[0] / self->mass;
       a_nn.y = self->nn_output[1] / self->mass;
       a_nn.z = self->nn_output[2] / self->mass;
     }
-
+    #endif
     // INDI
     struct vec a_indi = vzero();
     struct vec e3 = mkvec(0,0,1);
-    if ((self->indi & 1) && rpm_deck_available) {
-
-      float f_rpm = t1 + t2 + t3 + t4;
-      self->a_rpm = vadd(vadd(vsub(vscl(f_rpm / self->mass, mvmul(self->R, e3)), mkvec(0.0, 0.0, 9.81f)), vscl(self->tension/ self->mass, self->qi)), a_nn);
-      // self->a_rpm = vadd(vsub(vsub(vscl(f_rpm / self->mass, mvmul(self->R, e3)), mkvec(0.0, 0.0, 9.81f)), vscl(self->mp/self->mass, acc_)), a_nn);
-
-      update_butterworth_2_low_pass_vec(filter_acc_rpm, self->a_rpm);
-
-      // compute acceleration based on IMU (world frame, SI unit, no gravity)
-      self->a_imu = vscl(9.81, mkvec(state->acc.x, state->acc.y, state->acc.z));
-      update_butterworth_2_low_pass_vec(filter_acc_imu, self->a_imu);
-
-      self->a_rpm_filtered = get_butterworth_2_low_pass_vec(filter_acc_rpm);
-      self->a_imu_filtered = get_butterworth_2_low_pass_vec(filter_acc_imu);
-
-      a_indi = vsub(self->a_imu_filtered, self->a_rpm_filtered);
-
-      // DEBUG
-      if (tick % 500 == 0) {
-        DEBUG_PRINT("INDI p %f %f %f, %f %f %f\n", (double)self->a_rpm_filtered.x, (double)self->a_rpm_filtered.y, (double)self->a_rpm_filtered.z, (double)self->a_imu_filtered.x, (double)self->a_imu_filtered.y, (double)self->a_imu_filtered.z);
+    {
+      if ((self->indi & 1) && rpm_deck_available) {
+        
+        float f_rpm = t1 + t2 + t3 + t4;
+        self->a_rpm = vadd(vadd(vsub(vscl(f_rpm / self->mass, mvmul(self->R, e3)), mkvec(0.0, 0.0, 9.81f)), vscl(self->tension/ self->mass, self->qi)), a_nn);
+        // self->a_rpm = vadd(vsub(vsub(vscl(f_rpm / self->mass, mvmul(self->R, e3)), mkvec(0.0, 0.0, 9.81f)), vscl(self->mp/self->mass, acc_)), a_nn);
+        
+        update_butterworth_2_low_pass_vec(filter_acc_rpm, self->a_rpm);
+        
+        // compute acceleration based on IMU (world frame, SI unit, no gravity)
+        self->a_imu = vscl(9.81, mkvec(state->acc.x, state->acc.y, state->acc.z));
+        update_butterworth_2_low_pass_vec(filter_acc_imu, self->a_imu);
+        
+        self->a_rpm_filtered = get_butterworth_2_low_pass_vec(filter_acc_rpm);
+        self->a_imu_filtered = get_butterworth_2_low_pass_vec(filter_acc_imu);
+        
+        a_indi = vsub(self->a_imu_filtered, self->a_rpm_filtered);
+        
+        // DEBUG
+        if (tick % 500 == 0) {
+          DEBUG_PRINT("INDI p %f %f %f, %f %f %f\n", (double)self->a_rpm_filtered.x, (double)self->a_rpm_filtered.y, (double)self->a_rpm_filtered.z, (double)self->a_imu_filtered.x, (double)self->a_imu_filtered.y, (double)self->a_imu_filtered.z);
+        }
       }
     }
 
 
-    self->u_i = vadd(u_parallel, u_perpind);
-    self->u_i = vsub(vsub(self->u_i, vscl(self->mass, a_indi)), a_nn);
-    // u_i = u_parallel + u_perpind - (+?) mass*a_indi + mass*a_nn
-    // self->u_i = vsub(vsub(self->u_i, vscl(self->mass, a_indi)), vscl(self->mass, a_nn));
-    // self->u_i = vsub(vadd(self->u_i, vscl(self->mass, a_indi)), vscl(self->mass, a_nn));
-
-    // self->q = mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w);
-    // self->rpy = quat2rpy(self->q);
-    // self->R = quat2rotmat(self->q);
-    // add neural network:
-    control->thrustSi = vdot(self->u_i, mvmul(self->R, e3));
-
-    // control->thrustSi = vmag(self->u_i);
-    
-    // control->u_all[0] = self->u_i.x;
-    // control->u_all[1] = self->u_i.y;
-    // control->u_all[2] = self->u_i.z;
-
-    self->thrustSI = control->thrustSi;
-    //  Reset the accumulated error while on the ground
-    if (control->thrustSi < 0.01f) {
-      controllerLeePayloadReset(self);
-    }
-  
-    // Compute Desired Rotation matrix
-    struct vec Fd_ = self->u_i;
-    struct vec xdes = vbasis(0);
-    struct vec ydes = vbasis(1);
-    struct vec zdes = vbasis(2);
-  
-    if (self->thrustSI > 0) {
-      zdes = vnormalize(Fd_);
-    } 
-    // struct vec xcdes = mkvec(cosf(desiredYaw), sinf(desiredYaw), 0); 
-    struct vec xcdes = mkvec(1, 0, 0); 
-    struct vec zcrossx = vcross(zdes, xcdes);
-    float normZX = vmag(zcrossx);
-
-    if (normZX > 0) {
-      ydes = vnormalize(zcrossx);
-    } 
-    xdes = vcross(ydes, zdes);
-    
-    self->R_des = mcolumns(xdes, ydes, zdes);
- 
- /*
-  } else {
-    // DEBUG_PRINT("R2\n");
-    // we only support position control
-    control->controlMode = controlModeForceTorque;
-    control->thrustSi  = 0;
-    control->torque[0] = 0;
-    control->torque[1] = 0;
-    control->torque[2] = 0;
-    controllerLeePayloadReset(self);
-    return;
-  }
-*/
-  // Attitude controller
-
-  // current rotation [R]
-  self->q = mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w);
-  self->rpy = quat2rpy(self->q);
-  self->R = quat2rotmat(self->q);
-
-  // desired rotation [Rdes]
-  struct quat q_des = mat2quat(self->R_des);
-  self->rpy_des = quat2rpy(q_des);
-
-  // rotation error
-  struct mat33 eRM = msub(mmul(mtranspose(self->R_des), self->R), mmul(mtranspose(self->R), self->R_des));
-
-  struct vec eR = vscl(0.5f, mkvec(eRM.m[2][1], eRM.m[0][2], eRM.m[1][0]));
-
-  // angular velocity
-  self->omega = mkvec(
-    radians(sensors->gyro.x),
-    radians(sensors->gyro.y),
-    radians(sensors->gyro.z));
-
   // Compute desired omega
-  struct vec xb = mcolumn(self->R_des, 0);
-  struct vec yb = mcolumn(self->R_des, 1);
-  struct vec zb = mcolumn(self->R_des, 2);
-  
+
   // compute desJerk from UAV perspective:
   // desJerk = plJerk_d - l * qi-dddot
 
   // Tang, Appendix B
   struct vec desJerk = vzero();
-  {
-    float T_des = vmag(self->desVirtInp);
-    struct vec q_des = self->qdi;
-    // struct vec q_des_dot = self->qdidot;
-    struct vec q_des_dot = qdidot_fake;
+  float T_des = vmag(self->F_d);
+  
+  struct vec q_des = self->qdi;
+  struct vec q_des_dot = self->qdidot;
 
-    float T_des_dot = -self->mp * vdot(plJerk_d, q_des);
-    float T_des_ddot = -self->mp * (vdot(plSnap_d, q_des) + vdot(plJerk_d, q_des_dot));
-    struct vec q_des_ddot = vdiv(vneg(vadd3(vscl(self->mp, plSnap_d), vscl(2.0f*T_des_dot, q_des_dot), vscl(T_des_ddot, q_des))), T_des);
+  float T_des_dot = -self->mp * vdot(plJerk_d, q_des);
+  
+  float T_des_ddot = -self->mp * (vdot(plSnap_d, q_des) + vdot(plJerk_d, q_des_dot));
+ 
+  struct vec q_des_ddot = vdiv(vneg(vadd3(vscl(self->mp, plSnap_d), vscl(2.0f*T_des_dot, q_des_dot), vscl(T_des_ddot, q_des))), T_des);
 
-    float T_des_dddot = -self->mp * (vdot(plSnapd_d, q_des) + 2.0f * vdot(plSnap_d, q_des_dot) + vdot(plJerk_d, q_des_ddot));
-    struct vec q_des_dddot = vdiv(vneg(vadd4(vscl(self->mp, plSnapd_d), vscl(3.0f*T_des_ddot, q_des_dot), vscl(3.0f * T_des_dot, q_des_ddot), vscl(T_des_dddot, q_des))), T_des);
-    
-    desJerk = vsub(plJerk_d, vscl(l, q_des_dddot));
+  float T_des_dddot = -self->mp * (vdot(plSnapd_d, q_des) + 2.0f * vdot(plSnap_d, q_des_dot) + vdot(plJerk_d, q_des_ddot));
+  
+  struct vec q_des_dddot = vdiv(vneg(vadd4(vscl(self->mp, plSnapd_d), vscl(3.0f*T_des_ddot, q_des_dot), vscl(3.0f * T_des_dot, q_des_ddot), vscl(T_des_dddot, q_des))), T_des);
+  
+  struct vec wc_ddot = vscl(self->mp, vadd3( vcross(plSnapd_d, q_des), vcross(vscl(2.0f,plSnap_d), q_des_dot), vcross(plJerk_d, q_des_ddot)));
+
+  struct vec u_perpind = vsub(
+  vscl(self->mass*l, mvmul(skewqi, vadd5(
+    vneg(veltmul(self->K_q, vclampnorm(eq, self->K_q_limit))),
+    vneg(veltmul(self->K_w, vclampnorm(ew, self->K_w_limit))),
+    vneg(veltmul(self->K_q_I, self->i_error_q)), // main difference to Lee: Lee multiplies again by skewqui and normalizes by cable length
+    vneg(vscl(vdot(self->qi, wdi), self->qidot)),
+    vneg(mvmul(skewqi2 ,wc_ddot))))),
+  vscl(self->mass/self->mp, mvmul(skewqi2, self->F_d)));
+
+
+  desJerk = vsub(plJerk_d, vscl(l, q_des_dddot));
+
+  self->u_i = vadd(u_parallel, u_perpind);
+  self->u_i = vsub(vsub(self->u_i, vscl(self->mass, a_indi)), a_nn);
+
+  // add neural network:
+  // control->thrustSi = vdot(self->u_i, mvmul(self->R, e3));
+  control->thrustSi = vmag(self->u_i);
+  self->thrustSI = control->thrustSi;
+  //  Reset the accumulated error while on the ground
+  if (control->thrustSi < 0.01f) {
+    controllerLeePayloadReset(self);
   }
 
-  float c = control->thrustSi / self->mass;
-  float B1 = c;
-  float B3 = -vdot(yc, zb);
-  float C3 = vmag(vcross(yc, zb));
-  float D1 = vdot(xb, desJerk);
-  float D2 = -vdot(yb, desJerk);
-  float D3 = radians(setpoint->attitudeRate.yaw) * vdot(xc, xb);
-  
-  struct vec omega_des = vzero();
-  if (control->thrustSi != 0) {
-    omega_des.x = D2/B1;
-    omega_des.y = D1/B1;
-    omega_des.z = (B1*D3-B3*D1)/(B1*C3);
-  }
+  // Compute Desired Rotation matrix
+  struct vec Fd_ = self->u_i;
 
-  // // Compute desired omega dot
-  // float setpoint_yaw_ddot = radians(setpoint->attitudeAcc.yaw);
-  // float setpoint_yaw_dot = radians(setpoint->attitudeRate.yaw);
+  struct vec xb = vnormalize(vcross(yc, Fd_));
+  struct vec yb = vnormalize(vcross(Fd_, xb));
+  struct vec zb = vnormalize(self->u_i);
+  self->R_des = mcolumns(xb, yb, zb);
 
-  // struct vec desSnap = mkvec(setpoint->snap.x, setpoint->snap.y, setpoint->snap.z);
-  // float c_dot = vdot(zb, desJerk);
-  // float E1 = vdot(xb,desSnap) - 2.0f * c_dot * omega_des.y - c * omega_des.x * omega_des.z;
-  // float E2 = -vdot(yb,desSnap) - 2.0f * c_dot * omega_des.x + c * omega_des.y * omega_des.z;
-  // float E3 = setpoint_yaw_ddot * vdot(xc, xb) + 2.0f * setpoint_yaw_dot * omega_des.z * vdot(xc, yb) - 2.0f * setpoint_yaw_dot*omega_des.y*vdot(xc,zb) - omega_des.x*omega_des.y*vdot(yc,yb) - omega_des.x*omega_des.z*vdot(yc,zb);
+// Attitude controller
 
-  self->omega_des_dot = vzero();
-  // if (control->thrustSi != 0) {
-  //   self->omega_des_dot.x = E2/B1;
-  //   self->omega_des_dot.y = E1/B1;
-  //   self->omega_des_dot.z = (B1*E3-B3*E1)/(B1*C3);
-  // }
+// current rotation [R]
+self->q = mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w);
+self->rpy = quat2rpy(self->q);
+self->R = quat2rotmat(self->q);
+
+// desired rotation [Rdes]
+struct quat quat_des = mat2quat(self->R_des);
+self->rpy_des = quat2rpy(quat_des);
+
+// rotation error
+struct mat33 eRM = msub(mmul(mtranspose(self->R_des), self->R), mmul(mtranspose(self->R), self->R_des));
+
+struct vec eR = vscl(0.5f, mkvec(eRM.m[2][1], eRM.m[0][2], eRM.m[1][0]));
+
+// angular velocity
+self->omega = mkvec(
+radians(sensors->gyro.x),
+radians(sensors->gyro.y),
+radians(sensors->gyro.z));
 
 
-  self->omega_r = mvmul(mmul(mtranspose(self->R), self->R_des), omega_des);
+float c = control->thrustSi / self->mass;
+float B1 = c;
+float B3 = -vdot(yc, zb);
+float C3 = vmag(vcross(yc, zb));
+float D1 = vdot(xb, desJerk);
+float D2 = -vdot(yb, desJerk);
+float D3 = radians(setpoint->attitudeRate.yaw) * vdot(xc, xb);
 
-  struct vec omega_error = vsub(self->omega, self->omega_r);
-  
-  // Integral part on angle
-  self->i_error_att = vadd(self->i_error_att, vscl(dt, eR));
+struct vec omega_des = vzero();
+omega_des.x = D2/B1;
+omega_des.y = D1/B1;
+omega_des.z = (B1*D3-B3*D1)/(B1*C3);
+// printf("omega_des: %f %f %f\n", omega_des.x, omega_des.y, omega_des.z);
+// // Compute desired omega dot
+// float setpoint_yaw_ddot = radians(setpoint->attitudeAcc.yaw);
+// float setpoint_yaw_dot = radians(setpoint->attitudeRate.yaw);
 
-  // compute moments
-  // M = -kR eR - kw ew + w x Jw - J(w x wr)
-  self->u = vadd5(
-    vneg(veltmul(self->KR, eR)),
-    vneg(veltmul(self->Komega, omega_error)),
-    vneg(veltmul(self->KI, self->i_error_att)),
-    vcross(self->omega, veltmul(self->J, self->omega)),
-    vneg(veltmul(self->J, vsub(mvmul(mcrossmat(self->omega), self->omega_r), mvmul(mmul(mtranspose(self->R), self->R_des), self->omega_des_dot)))));
+// struct vec desSnap = mkvec(setpoint->snap.x, setpoint->snap.y, setpoint->snap.z);
+// float c_dot = vdot(zb, desJerk);
+// float E1 = vdot(xb,desSnap) - 2.0f * c_dot * omega_des.y - c * omega_des.x * omega_des.z;
+// float E2 = -vdot(yb,desSnap) - 2.0f * c_dot * omega_des.x + c * omega_des.y * omega_des.z;
+// float E3 = setpoint_yaw_ddot * vdot(xc, xb) + 2.0f * setpoint_yaw_dot * omega_des.z * vdot(xc, yb) - 2.0f * setpoint_yaw_dot*omega_des.y*vdot(xc,zb) - omega_des.x*omega_des.y*vdot(yc,yb) - omega_des.x*omega_des.z*vdot(yc,zb);
+
+self->omega_des_dot = vzero();
+// if (control->thrustSi != 0) {
+//   self->omega_des_dot.x = E2/B1;
+//   self->omega_des_dot.y = E1/B1;
+//   self->omega_des_dot.z = (B1*E3-B3*E1)/(B1*C3);
+// }
+
+
+self->omega_r = mvmul(mmul(mtranspose(self->R), self->R_des), omega_des);
+
+struct vec omega_error = vsub(self->omega, self->omega_r);
+
+// Integral part on angle
+self->i_error_att = vadd(self->i_error_att, vscl(dt, eR));
+
+// compute moments
+// M = -kR eR - kw ew + w x Jw - J(w x wr)
+self->u = vadd5(
+  vneg(veltmul(self->KR, eR)),
+  vneg(veltmul(self->Komega, omega_error)),
+  vneg(veltmul(self->KI, self->i_error_att)),
+  vcross(self->omega, veltmul(self->J, self->omega)),
+  vneg(veltmul(self->J, vsub(mvmul(mcrossmat(self->omega), self->omega_r), mvmul(mmul(mtranspose(self->R), self->R_des), self->omega_des_dot)))));
 
   struct vec u_nn = vzero();
-  if (self->use_nn & 2) {
-    u_nn.x = self->nn_output[3];
-    u_nn.y = self->nn_output[4];
-    u_nn.z = self->nn_output[5];
-  }
-
   struct vec indi_moments = vzero();
-  if ((self->indi & 2) && rpm_deck_available) {
-    const float t2t = 0.006f;
-    const float arm = 0.707106781f * 0.046f;
-    self->tau_rpm = mkvec(
-      -arm * t1 - arm * t2 + arm * t3 + arm * t4,
-      -arm * t1 + arm * t2 + arm * t3 - arm * t4,
-      -t2t * t1 + t2t * t2 - t2t * t3 + t2t * t4
-    );
-    self->tau_rpm = vadd(self->tau_rpm, u_nn);
-    update_butterworth_2_low_pass_vec(filter_tau_rpm, self->tau_rpm);
+  #ifdef CRAZYFLIE_FW
+    if (self->use_nn & 2) {
+      u_nn.x = self->nn_output[3];
+      u_nn.y = self->nn_output[4];
+      u_nn.z = self->nn_output[5];
+    }
 
-    self->tau_rpm_filtered = get_butterworth_2_low_pass_vec(filter_tau_rpm);
+    if ((self->indi & 2) && rpm_deck_available) {
+      const float t2t = 0.006f;
+      const float arm = 0.707106781f * 0.046f;
+      self->tau_rpm = mkvec(
+        -arm * t1 - arm * t2 + arm * t3 + arm * t4,
+        -arm * t1 + arm * t2 + arm * t3 - arm * t4,
+        -t2t * t1 + t2t * t2 - t2t * t3 + t2t * t4
+      );
+      self->tau_rpm = vadd(self->tau_rpm, u_nn);
+      update_butterworth_2_low_pass_vec(filter_tau_rpm, self->tau_rpm);
 
-    // angular accelleration
-    uint64_t timestamp = usecTimestamp();
-    float dt = (timestamp - self->timestamp_prev) / 1e6;
-    struct vec angular_acc = vdiv(vsub(self->omega, self->omega_prev), dt);
-    self->tau_imu = veltmul(self->J, angular_acc);
-    self->tau_imu = vsub(self->tau_imu, vcross(veltmul(self->J, self->omega), self->omega));
+      self->tau_rpm_filtered = get_butterworth_2_low_pass_vec(filter_tau_rpm);
 
-    update_butterworth_2_low_pass_vec(filter_tau_imu, self->tau_imu);
+      // angular accelleration
+      uint64_t timestamp = usecTimestamp();
+      float dt = (timestamp - self->timestamp_prev) / 1e6;
+      struct vec angular_acc = vdiv(vsub(self->omega, self->omega_prev), dt);
+      self->tau_imu = veltmul(self->J, angular_acc);
+      self->tau_imu = vsub(self->tau_imu, vcross(veltmul(self->J, self->omega), self->omega));
 
-    self->tau_imu_filtered = get_butterworth_2_low_pass_vec(filter_tau_imu);
-    // self->tau_imu_filtered = veltmul(self->J, angular_acc_filtered);
+      update_butterworth_2_low_pass_vec(filter_tau_imu, self->tau_imu);
 
-    self->omega_prev = self->omega;
-    self->timestamp_prev = timestamp;
+      self->tau_imu_filtered = get_butterworth_2_low_pass_vec(filter_tau_imu);
+      // self->tau_imu_filtered = veltmul(self->J, angular_acc_filtered);
 
-    indi_moments = vsub(self->tau_imu_filtered, self->tau_rpm_filtered);
-    indi_moments.z = 0.0f;
-    // self->u = vsub(self->u, indi_moments);
+      self->omega_prev = self->omega;
+      self->timestamp_prev = timestamp;
 
-    // // DEBUG
-    // if (tick % 1000 == 0) {
-    //   DEBUG_PRINT("INDI a %f %f %f, %f %f %f\n", (double)self->tau_rpm_filtered.x, (double)self->tau_rpm_filtered.y, (double)self->tau_rpm_filtered.z, (double)self->tau_imu_filtered.x, (double)self->tau_imu_filtered.y, (double)self->tau_imu_filtered.z);
-    // }
-  }
+      indi_moments = vsub(self->tau_imu_filtered, self->tau_rpm_filtered);
+      indi_moments.z = 0.0f;
+      // self->u = vsub(self->u, indi_moments);
+
+      // DEBUG
+      if (tick % 1000 == 0) {
+        DEBUG_PRINT("INDI a %f %f %f, %f %f %f\n", (double)self->tau_rpm_filtered.x, (double)self->tau_rpm_filtered.y, (double)self->tau_rpm_filtered.z, (double)self->tau_imu_filtered.x, (double)self->tau_imu_filtered.y, (double)self->tau_imu_filtered.z);
+      }
+    }
+  #endif
   self->u = vsub2(self->u, indi_moments, u_nn);
   control->controlMode = controlModeForceTorque;
   control->torque[0] = self->u.x;
   control->torque[1] = self->u.y;
   control->torque[2] = self->u.z;
-
-  // ticks = usecTimestamp() - startTime;
+  // printf("thrust: %f, torques: %f %f %f \n", control->thrustSi, control->torqueX, control->torqueY, control->torqueZ);
 }
 
 #ifdef CRAZYFLIE_FW
@@ -2112,12 +1949,6 @@ PARAM_ADD(PARAM_FLOAT, Kpos_Ix, &g_self.Kpos_I.x)
 PARAM_ADD(PARAM_FLOAT, Kpos_Iy, &g_self.Kpos_I.y)
 PARAM_ADD(PARAM_FLOAT, Kpos_Iz, &g_self.Kpos_I.z)
 PARAM_ADD(PARAM_FLOAT, Kpos_I_limit, &g_self.Kpos_I_limit)
-
-// Payload Acceleration A
-PARAM_ADD(PARAM_FLOAT, Kpos_Ax, &g_self.Kpos_A.x)
-PARAM_ADD(PARAM_FLOAT, Kpos_Ay, &g_self.Kpos_A.y)
-PARAM_ADD(PARAM_FLOAT, Kpos_Az, &g_self.Kpos_A.z)
-PARAM_ADD(PARAM_FLOAT, Kpos_A_limit, &g_self.Kpos_A_limit)
 
 // Attitude Payload P
 PARAM_ADD(PARAM_FLOAT, Kprot_Px, &g_self.Kprot_P.x)

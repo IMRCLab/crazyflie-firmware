@@ -197,6 +197,7 @@ typedef struct state_s {
   point_t payload_pos;         // m   (world frame)
   quaternion_t payload_quat;   // orientation (world frame)
   velocity_t payload_vel;      // m/s (world frame)
+  acc_t payload_acc;
   Axis3f payload_omega;        // rad/s (world frame)
 } state_t;
 

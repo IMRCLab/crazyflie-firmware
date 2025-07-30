@@ -47,9 +47,6 @@ typedef struct controllerLeePayload_s {
         struct mat66 Pinv;
     } Pinvs[MAX_TEAM_SIZE];
     
-    //Position PID
-    struct vec Kpos_A;
-    float Kpos_A_limit;
     struct vec Kpos_P;
     float Kpos_P_limit;
     struct vec Kpos_D;
@@ -131,7 +128,7 @@ typedef struct controllerLeePayload_s {
     uint8_t formation_control; // 0: disabled, 1 - use regularization with previous value; 2: use mu_desired from attachement points
 
     uint8_t en_num_omega; // 0 - use Lee's method, 1 - use numeric estimate
-    struct quat prev_q_des;
+    struct quat prev_quat_des;
     uint32_t prev_q_tick;
 
     struct vec n[MAX_TEAM_SIZE * (MAX_TEAM_SIZE-1)];

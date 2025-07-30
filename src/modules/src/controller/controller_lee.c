@@ -36,7 +36,11 @@ CDC 2010
 
 #include <math.h>
 #include <string.h>
+#ifdef CRAZYFLIE_FW
 #include <motors.h>
+#include "nn.h"
+#include "usec_time.h"
+#endif
 
 #include "log.h"
 #include "param.h"
@@ -48,11 +52,8 @@ CDC 2010
 #include "platform_defaults.h"
 
 #include "filter.h"
-#include "usec_time.h"
 #include "debug.h"
 
-#include "nn.h"
-#include "usec_time.h"
 float nn_inference_time;
 
 static controllerLee_t g_self = {
@@ -83,12 +84,15 @@ static controllerLee_t g_self = {
 };
 
 
+#ifdef CRAZYFLIE_FW
 static bool rpm_deck_available;
 static logVarId_t logVarRpm1;
 static logVarId_t logVarRpm2;
 static logVarId_t logVarRpm3;
 static logVarId_t logVarRpm4;
-
+#else
+static bool rpm_deck_available;
+#endif
 static Butterworth2LowPass filter_acc_rpm[3];
 static Butterworth2LowPass filter_acc_imu[3];
 static Butterworth2LowPass filter_tau_rpm[3];
@@ -136,7 +140,7 @@ void controllerLeeInit(controllerLee_t* self)
   } else {
     DEBUG_PRINT("No NN\n");
   }
-
+  #ifdef CRAZYFLIE_FW
   paramVarId_t idDeckBcRpm = paramGetVarId("deck", "bcRpm");
   logVarRpm1 = logGetVarId("rpm", "m1");
   logVarRpm2 = logGetVarId("rpm", "m2");
@@ -144,7 +148,9 @@ void controllerLeeInit(controllerLee_t* self)
   logVarRpm4 = logGetVarId("rpm", "m4");
 
   rpm_deck_available = (paramGetUint(idDeckBcRpm) == 1);
-
+  #else
+      rpm_deck_available = false;
+  #endif
   const float cutoff = 30; // Hz
 	for (int8_t i = 0; i < 3; i++) {
 		init_butterworth_2_low_pass(&filter_acc_rpm[i], 1 / (2 * M_PI_F * cutoff), 1.0 / ATTITUDE_RATE, 0.0f);
@@ -170,10 +176,10 @@ void controllerLeeInit(controllerLee_t* self)
   } else {
     DEBUG_PRINT("No INDI\n");
   }
-
-  self->timestamp_prev = usecTimestamp();
-  self->omega_prev = vzero();
-
+  #ifdef CRAZYFLIE_FW
+    self->timestamp_prev = usecTimestamp();
+    self->omega_prev = vzero();
+  #endif
   controllerLeeReset(self);
 }
 
@@ -199,18 +205,20 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
   // Address inconsistency in firmware where we need to compute our own desired yaw angle
   // Rate-controlled YAW is moving YAW angle setpoint
   float desiredYaw = 0; //rad
+  // printf("mode yaw %s\n",setpoint->mode.yaw);
   if (setpoint->mode.yaw == modeVelocity) {
     desiredYaw = radians(state->attitude.yaw + setpoint->attitudeRate.yaw * dt);
   } else if (setpoint->mode.yaw == modeAbs) {
-    desiredYaw = radians(setpoint->attitude.yaw);
   } else if (setpoint->mode.quat == modeAbs) {
     struct quat setpoint_quat = mkquat(setpoint->attitudeQuaternion.x, setpoint->attitudeQuaternion.y, setpoint->attitudeQuaternion.z, setpoint->attitudeQuaternion.w);
     self->rpy_des = quat2rpy(setpoint_quat);
     desiredYaw = self->rpy_des.z;
   }
+  desiredYaw = radians(setpoint->attitude.yaw);
 
   // INDI
   float t1 = 0.0f, t2 = 0.0f, t3 = 0.0f, t4 = 0.0f;
+  #ifdef CRAZYFLIE_FW
   if (self->indi && rpm_deck_available) {
 
     uint16_t rpm[4];
@@ -246,6 +254,7 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     //   DEBUG_PRINT("INDI t %f %f %f %f\n", (double)t1, (double)t2, (double)t3, (double)t4);
     // }
   }
+  #endif
   struct vec xc = mkvec(cosf(desiredYaw), sinf(desiredYaw), 0);
   struct vec yc = mkvec(-sinf(desiredYaw), cosf(desiredYaw), 0);
 
@@ -269,7 +278,8 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     struct quat q = mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w);
     struct mat33 R = quat2rotmat(q);
     struct vec z  = vbasis(2);
-
+    struct vec a_nn = vzero();
+    #ifdef CRAZYFLIE_FW
     if (self->use_nn) {
       
       float start_time = usecTimestamp();
@@ -311,19 +321,19 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
       float elapsed_time = end_time - start_time;
       nn_inference_time = elapsed_time; // Microseconds
     }
-    // desired acceleration
-    struct vec a_d = vadd4(
-      acc_d,
-      veltmul(self->Kpos_D, vel_e),
-      veltmul(self->Kpos_P, pos_e),
-      veltmul(self->Kpos_I, self->i_error_pos));
-
-    struct vec a_nn = vzero();
     if (self->use_nn & 1) {
       a_nn.x = self->nn_output[0] / self->mass;
       a_nn.y = self->nn_output[1] / self->mass;
       a_nn.z = self->nn_output[2] / self->mass;
     }
+    #endif
+    // desired acceleration
+    
+    struct vec a_d = vadd4(
+      acc_d,
+      veltmul(self->Kpos_D, vel_e),
+      veltmul(self->Kpos_P, pos_e),
+      veltmul(self->Kpos_I, self->i_error_pos));
     // INDI
     struct vec a_indi = vzero();
     if ((self->indi & 1) && rpm_deck_available) {
@@ -459,58 +469,59 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     vcross(self->omega, veltmul(self->J, self->omega)),
     vneg(veltmul(self->J, vsub(mvmul(mcrossmat(self->omega), self->omega_r), mvmul(mmul(mtranspose(R), self->R_des), self->omega_des_dot)))));
 
+    struct vec indi_moments = vzero();
   struct vec u_nn = vzero();
-  if (self->use_nn & 2) {
-    u_nn.x = self->nn_output[3];
-    u_nn.y = self->nn_output[4];
-    u_nn.z = self->nn_output[5];
-  }
+  #ifdef CRAZYFLIE_FW
+    if (self->use_nn & 2) {
+      u_nn.x = self->nn_output[3];
+      u_nn.y = self->nn_output[4];
+      u_nn.z = self->nn_output[5];
+    }
 
-  struct vec indi_moments = vzero();
-  if ((self->indi & 2) && rpm_deck_available) {
-    const float t2t = 0.006f;
-    const float arm = 0.707106781f * 0.046f;
-    self->tau_rpm = mkvec(
-      -arm * t1 - arm * t2 + arm * t3 + arm * t4,
-      -arm * t1 + arm * t2 + arm * t3 - arm * t4,
-      -t2t * t1 + t2t * t2 - t2t * t3 + t2t * t4
-    );
-    self->tau_rpm = vadd(self->tau_rpm, u_nn);
-    update_butterworth_2_low_pass_vec(filter_tau_rpm, self->tau_rpm);
+    if ((self->indi & 2) && rpm_deck_available) {
+      const float t2t = 0.006f;
+      const float arm = 0.707106781f * 0.046f;
+      self->tau_rpm = mkvec(
+        -arm * t1 - arm * t2 + arm * t3 + arm * t4,
+        -arm * t1 + arm * t2 + arm * t3 - arm * t4,
+        -t2t * t1 + t2t * t2 - t2t * t3 + t2t * t4
+      );
+      self->tau_rpm = vadd(self->tau_rpm, u_nn);
+      update_butterworth_2_low_pass_vec(filter_tau_rpm, self->tau_rpm);
 
-    self->tau_rpm_filtered = get_butterworth_2_low_pass_vec(filter_tau_rpm);
+      self->tau_rpm_filtered = get_butterworth_2_low_pass_vec(filter_tau_rpm);
 
-    // angular accelleration
-    uint64_t timestamp = usecTimestamp();
-    float dt = (timestamp - self->timestamp_prev) / 1e6;
-    struct vec angular_acc = vdiv(vsub(self->omega, self->omega_prev), dt);
-    self->tau_imu = veltmul(self->J, angular_acc);
-    self->tau_imu = vsub(self->tau_imu, vcross(veltmul(self->J, self->omega), self->omega));
+      // angular accelleration
+      uint64_t timestamp = usecTimestamp();
+      float dt = (timestamp - self->timestamp_prev) / 1e6;
+      struct vec angular_acc = vdiv(vsub(self->omega, self->omega_prev), dt);
+      self->tau_imu = veltmul(self->J, angular_acc);
+      self->tau_imu = vsub(self->tau_imu, vcross(veltmul(self->J, self->omega), self->omega));
 
-    update_butterworth_2_low_pass_vec(filter_tau_imu, self->tau_imu);
+      update_butterworth_2_low_pass_vec(filter_tau_imu, self->tau_imu);
 
-    self->tau_imu_filtered = get_butterworth_2_low_pass_vec(filter_tau_imu);
-    // self->tau_imu_filtered = veltmul(self->J, angular_acc_filtered);
+      self->tau_imu_filtered = get_butterworth_2_low_pass_vec(filter_tau_imu);
+      // self->tau_imu_filtered = veltmul(self->J, angular_acc_filtered);
 
-    self->omega_prev = self->omega;
-    self->timestamp_prev = timestamp;
+      self->omega_prev = self->omega;
+      self->timestamp_prev = timestamp;
 
-    indi_moments = vsub(self->tau_imu_filtered, self->tau_rpm_filtered);
-    // indi_moments.z = 0.0f;
-    // self->u = vsub(self->u, indi_moments);
+      indi_moments = vsub(self->tau_imu_filtered, self->tau_rpm_filtered);
+      // indi_moments.z = 0.0f;
+      // self->u = vsub(self->u, indi_moments);
 
-    // // DEBUG
-    // if (tick % 1000 == 0) {
-    //   DEBUG_PRINT("INDI a %f %f %f, %f %f %f\n", (double)self->tau_rpm_filtered.x, (double)self->tau_rpm_filtered.y, (double)self->tau_rpm_filtered.z, (double)self->tau_imu_filtered.x, (double)self->tau_imu_filtered.y, (double)self->tau_imu_filtered.z);
-    // }
-  }
+      // // DEBUG
+      // if (tick % 1000 == 0) {
+      //   DEBUG_PRINT("INDI a %f %f %f, %f %f %f\n", (double)self->tau_rpm_filtered.x, (double)self->tau_rpm_filtered.y, (double)self->tau_rpm_filtered.z, (double)self->tau_imu_filtered.x, (double)self->tau_imu_filtered.y, (double)self->tau_imu_filtered.z);
+      // }
+    }
+  #endif
   self->u = vsub2(self->u, indi_moments, u_nn);
   control->controlMode = controlModeForceTorque;
   control->torque[0] = self->u.x;
   control->torque[1] = self->u.y;
   control->torque[2] = self->u.z;
 
-  // ticks = usecTimestamp() - startTime;
 }
 
 LOG_GROUP_START(nn_perf)
