@@ -189,11 +189,11 @@ void controllerRLFirmware(control_t *control,
 
   struct vec rel_pos = vsub(pos, payload_pos);
 
-  struct vec other_pos = mkvec(state->team_state[1].pos.x, state->team_state[1].pos.y, state->team_state[1].pos.z);
+  struct vec other_pos_1 = mkvec(state->team_state[1].pos.x, state->team_state[1].pos.y, state->team_state[1].pos.z);
+  struct vec other_pos_2 = mkvec(state->team_state[2].pos.x, state->team_state[2].pos.y, state->team_state[2].pos.z);
 
-  struct vec rel_pos_other = vsub(other_pos, payload_pos);
-
-
+  struct vec rel_pos_other_1 = vsub(other_pos_1, payload_pos);
+  struct vec rel_pos_other_2 = vsub(other_pos_2, payload_pos);
 
   // // rotate state acceleration in G to body frrame
   // struct vec acc_world = mkvec(state->acc.x, state->acc.y, state->acc.z);
@@ -247,9 +247,12 @@ void controllerRLFirmware(control_t *control,
   in_data[25] = lastAction[1];
   in_data[26] = lastAction[2];
   in_data[27] = lastAction[3];
-  in_data[28] = rel_pos_other.x;
-  in_data[29] = rel_pos_other.y;
-  in_data[30] = rel_pos_other.z;
+  in_data[28] = rel_pos_other_1.x;
+  in_data[29] = rel_pos_other_1.y;
+  in_data[30] = rel_pos_other_1.z;
+  in_data[31] = rel_pos_other_2.x;
+  in_data[32] = rel_pos_other_2.y;
+  in_data[33] = rel_pos_other_2.z;
 
     /* 2 - Call inference engine */
     aiRun(in_data, out_data);
