@@ -405,12 +405,12 @@ bool crtpCommanderHighLevelGetSetpoint(setpoint_t* setpoint, const state_t *stat
     // store the last setpoint
     pos = ev.pos;
     vel = ev.vel;
-    yaw = ev.yaw;
+    // yaw = ev.yaw;
 	
 	  const float dt = (float)(1.0f/RATE_HL_COMMANDER);
     float yawrate_desired_adjusted = yawrate_desired;
     if (yawrate_desired == 0.0f) {
-      float signed_yaw = shortest_signed_angle_radians(yaw, 0.0f);
+      float signed_yaw = shortest_signed_angle_radians(ev.yaw, 0.0f);
       // attempt to go there in 1.0s
       yawrate_desired_adjusted = copysignf(fabsf(signed_yaw/1.0f), signed_yaw);
     }
