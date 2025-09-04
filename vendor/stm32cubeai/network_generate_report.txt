@@ -1,40 +1,40 @@
 ST Edge AI Core v2.2.0-20266 2adc00962
-Created date          : 2025-09-04 09:04:37
-Parameters            : generate --model /tmp/stm32ai_service/1892e5bf-32d0-4804-b589-c30117578e3e/actor_model-93.tflite --optimization balanced --target stm32f4 --name network --workspace /tmp/stm32ai_service/1892e5bf-32d0-4804-b589-c30117578e3e/workspace --output /tmp/stm32ai_service/1892e5bf-32d0-4804-b589-c30117578e3e/output
+Created date          : 2025-09-04 13:06:15
+Parameters            : generate --model /tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/actor_model-94.tflite --optimization balanced --target stm32f4 --name network --workspace /tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/workspace --output /tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output
 
 Exec/report summary (generate)
 ---------------------------------------------------------------------------------------------------------
-model file         :   /tmp/stm32ai_service/1892e5bf-32d0-4804-b589-c30117578e3e/actor_model-93.tflite   
+model file         :   /tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/actor_model-94.tflite   
 type               :   tflite                                                                            
 c_name             :   network                                                                           
 compression        :   lossless                                                                          
 options            :   allocate-inputs, allocate-outputs                                                 
 optimization       :   balanced                                                                          
 target/series      :   stm32f4                                                                           
-workspace dir      :   /tmp/stm32ai_service/1892e5bf-32d0-4804-b589-c30117578e3e/workspace               
-output dir         :   /tmp/stm32ai_service/1892e5bf-32d0-4804-b589-c30117578e3e/output                  
+workspace dir      :   /tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/workspace               
+output dir         :   /tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output                  
 model_fmt          :   float                                                                             
-model_name         :   actor_model93                                                                     
-model_hash         :   0x63ffa1f3d585c2d79431b6569874d868                                                
-params #           :   10,628 items (41.52 KiB)                                                          
+model_name         :   actor_model94                                                                     
+model_hash         :   0x488a3d3b312014d1f23922c94c08ec98                                                
+params #           :   10,820 items (42.27 KiB)                                                          
 ---------------------------------------------------------------------------------------------------------
-input 1/1          :   'serving_default_args_00', f32(1x31), 124 Bytes, activations                      
+input 1/1          :   'serving_default_args_00', f32(1x34), 136 Bytes, activations                      
 output 1/1         :   'gemm_6', f32(1x4), 16 Bytes, activations                                         
-macc               :   12,548                                                                            
-weights (ro)       :   42,512 B (41.52 KiB) (1 segment)                                                  
+macc               :   12,740                                                                            
+weights (ro)       :   43,280 B (42.27 KiB) (1 segment)                                                  
 activations (rw)   :   512 B (512 B) (1 segment) *                                                       
 ram (total)        :   512 B (512 B) = 512 + 0 + 0                                                       
 ---------------------------------------------------------------------------------------------------------
 (*) 'input'/'output' buffers are allocated in the activations buffer
 
-Model name - actor_model93
+Model name - actor_model94
 ------ ------------------------------------------------ ------------- -------------- ------- -------------------------------- --- ----------------- ----------------- ------------------ 
 m_id   layer (type,original)                            oshape        param/size        macc                     connected to   | c_size            c_macc            c_type             
 ------ ------------------------------------------------ ------------- -------------- ------- -------------------------------- --- ----------------- ----------------- ------------------ 
-0      serving_default_args_00 (Input, )                [b:1,c:31]                                                              | +8,192(+100.0%)   +2,048(+100.0%)   Dense_[0]          
-       tf_actor_1_dense_1_MatMul (Placeholder, )        [b:64,c:31]   1,984/7,936                                               | -7,936(-100.0%)                     
+0      serving_default_args_00 (Input, )                [b:1,c:34]                                                              | +8,960(+100.0%)   +2,240(+100.0%)   Dense_[0]          
+       tf_actor_1_dense_1_MatMul (Placeholder, )        [b:64,c:34]   2,176/8,704                                               | -8,704(-100.0%)                     
        tf_actor_1_dense_1..VariableOp (Placeholder, )   [b:64]        64/256                                                    | -256(-100.0%)                       
-       gemm_0 (Gemm, FULLY_CONNECTED)                   [b:1,c:64]                     2,048          serving_default_args_00   |                   -2,048(-100.0%)   
+       gemm_0 (Gemm, FULLY_CONNECTED)                   [b:1,c:64]                     2,240          serving_default_args_00   |                   -2,240(-100.0%)   
                                                                                                     tf_actor_1_dense_1_MatMul   | 
                                                                                                tf_actor_1_dense_1..VariableOp   | 
 ------ ------------------------------------------------ ------------- -------------- ------- -------------------------------- --- ----------------- ----------------- ------------------ 
@@ -62,19 +62,19 @@ m_id   layer (type,original)                            oshape        param/size
                                                                                                                arith_constant   | 
                                                                                                               arith_constant3   | 
 ------ ------------------------------------------------ ------------- -------------- ------- -------------------------------- --- ----------------- ----------------- ------------------ 
-model/c-model: macc=12,548/12,548  weights=42,512/42,512  activations=--/512 io=--/0
+model/c-model: macc=12,740/12,740  weights=43,280/43,280  activations=--/512 io=--/0
 
 
 
 Generated C-graph summary
 ------------------------------------------------------------------------------------------------------------------------
-model name            : actor_model93
+model name            : actor_model94
 c-name                : network
 c-node #              : 7
 c-array #             : 16
 activations size      : 512 (1 segment)
-weights size          : 42512 (1 segment)
-macc                  : 12548
+weights size          : 43280 (1 segment)
+macc                  : 12740
 inputs                : ['serving_default_args_00_output']
 outputs               : ['gemm_6_output']
 
@@ -84,7 +84,7 @@ c_id   name (*_array)                   item/size    domain/mem-pool           c
 ------ -------------------------------- ------------ ------------------------- ------------- --------- 
 0      gemm_0_bias                      64/256       weights/weights           const float             
 1      gemm_0_output                    64/256       activations/**default**   float                   
-2      gemm_0_weights                   1984/7936    weights/weights           const float             
+2      gemm_0_weights                   2176/8704    weights/weights           const float             
 3      gemm_2_bias                      64/256       weights/weights           const float             
 4      gemm_2_output                    64/256       activations/**default**   float                   
 5      gemm_2_weights                   4096/16384   weights/weights           const float             
@@ -97,15 +97,15 @@ c_id   name (*_array)                   item/size    domain/mem-pool           c
 12     nl_1_output                      64/256       activations/**default**   float                   
 13     nl_3_output                      64/256       activations/**default**   float                   
 14     nl_5_output                      64/256       activations/**default**   float                   
-15     serving_default_args_00_output   31/124       activations/**default**   float         /input    
+15     serving_default_args_00_output   34/136       activations/**default**   float         /input    
 ------ -------------------------------- ------------ ------------------------- ------------- --------- 
 
 C-Layers (7)
 ------ ---------------- ---- --------------- ------ ------- ----------------------------------- ------------------ 
 c_id   name (*_layer)   id   layer_type      macc   rom     tensors                             shape (array id)   
 ------ ---------------- ---- --------------- ------ ------- ----------------------------------- ------------------ 
-0      gemm_0           0    Dense           2048   8192    I: serving_default_args_00_output   f32(1x31) (15)     
-                                                            W: gemm_0_weights                   f32(64x31) (2)     
+0      gemm_0           0    Dense           2240   8960    I: serving_default_args_00_output   f32(1x34) (15)     
+                                                            W: gemm_0_weights                   f32(64x34) (2)     
                                                             W: gemm_0_bias                      f32(64) (0)        
                                                             O: gemm_0_output                    f32(1x64) (1)      
 ------ ---------------- ---- --------------- ------ ------- ----------------------------------- ------------------ 
@@ -140,7 +140,7 @@ Number of operations per c-layer
 ------- ------ --------------------- -------- -------------- 
 c_id    m_id   name (type)                #op           type 
 ------- ------ --------------------- -------- -------------- 
-0       0      gemm_0 (Dense)           2,048   smul_f32_f32 
+0       0      gemm_0 (Dense)           2,240   smul_f32_f32 
 1       1      nl_1 (Nonlinearity)        640     op_f32_f32 
 2       2      gemm_2 (Dense)           4,160   smul_f32_f32 
 3       3      nl_3 (Nonlinearity)        640     op_f32_f32 
@@ -148,28 +148,28 @@ c_id    m_id   name (type)                #op           type
 5       5      nl_5 (Nonlinearity)        640     op_f32_f32 
 6       6      gemm_6 (Dense)             260   smul_f32_f32 
 ------- ------ --------------------- -------- -------------- 
-total                                  12,548 
+total                                  12,740 
 
 Number of operation types
 ---------------- -------- ----------- 
 operation type          #           % 
 ---------------- -------- ----------- 
-smul_f32_f32       10,628       84.7% 
-op_f32_f32          1,920       15.3% 
+smul_f32_f32       10,820       84.9% 
+op_f32_f32          1,920       15.1% 
 
 Complexity report (model)
 ------ ------------------------- ------------------------- ------------------------- ------ 
 m_id   name                      c_macc                    c_rom                     c_id   
 ------ ------------------------- ------------------------- ------------------------- ------ 
-0      serving_default_args_00   ||||||||          16.3%   ||||||||          19.3%   [0]    
-1      nl_1                      |||                5.1%   |                  0.0%   [1]    
-2      arith_constant2           ||||||||||||||||  33.2%   ||||||||||||||||  39.1%   [2]    
-3      nl_3                      |||                5.1%   |                  0.0%   [3]    
-4      arith_constant1           ||||||||||||||||  33.2%   ||||||||||||||||  39.1%   [4]    
-5      nl_5                      |||                5.1%   |                  0.0%   [5]    
-6      arith_constant            |                  2.1%   |                  2.4%   [6]    
+0      serving_default_args_00   |||||||||         17.6%   |||||||||         20.7%   [0]    
+1      nl_1                      |||                5.0%   |                  0.0%   [1]    
+2      arith_constant2           ||||||||||||||||  32.7%   ||||||||||||||||  38.4%   [2]    
+3      nl_3                      |||                5.0%   |                  0.0%   [3]    
+4      arith_constant1           ||||||||||||||||  32.7%   ||||||||||||||||  38.4%   [4]    
+5      nl_5                      |||                5.0%   |                  0.0%   [5]    
+6      arith_constant            |                  2.0%   |                  2.4%   [6]    
 ------ ------------------------- ------------------------- ------------------------- ------ 
-macc=12,548 weights=42,512 act=512 ram_io=0
+macc=12,740 weights=43,280 act=512 ram_io=0
  
  Requested memory size by section - "stm32f4" target
  ------------------------------ ------- -------- ------- ----- 
@@ -182,11 +182,11 @@ macc=12,548 weights=42,512 act=512 ram_io=0
  ------------------------------ ------- -------- ------- ----- 
  RT total**                       7,464       72   2,156   152 
  ------------------------------ ------- -------- ------- ----- 
- weights                              0   42,512       0     0 
+ weights                              0   43,280       0     0 
  activations                          0        0       0   512 
  io                                   0        0       0     0 
  ------------------------------ ------- -------- ------- ----- 
- TOTAL                            7,464   42,584   2,156   664 
+ TOTAL                            7,464   43,352   2,156   664 
  ------------------------------ ------- -------- ------- ----- 
  *  toolchain objects (libm/libgcc*)
  ** RT AI runtime objects (kernels+infrastructure)
@@ -195,19 +195,19 @@ macc=12,548 weights=42,512 act=512 ram_io=0
   ---------------------------------------------------
                FLASH (ro)      %*   RAM (rw)       % 
   ---------------------------------------------------
-  RT total          9,692   18.6%      2,308   81.8% 
+  RT total          9,692   18.3%      2,308   81.8% 
   ---------------------------------------------------
-  TOTAL            52,204              2,820         
+  TOTAL            52,972              2,820         
   ---------------------------------------------------
   *  rt/total
 
 
 Generated files (7)
 ---------------------------------------------------------------------------------------- 
-/tmp/stm32ai_service/1892e5bf-32d0-4804-b589-c30117578e3e/output/network_data_params.h   
-/tmp/stm32ai_service/1892e5bf-32d0-4804-b589-c30117578e3e/output/network_data_params.c   
-/tmp/stm32ai_service/1892e5bf-32d0-4804-b589-c30117578e3e/output/network_data.h          
-/tmp/stm32ai_service/1892e5bf-32d0-4804-b589-c30117578e3e/output/network_data.c          
-/tmp/stm32ai_service/1892e5bf-32d0-4804-b589-c30117578e3e/output/network_config.h        
-/tmp/stm32ai_service/1892e5bf-32d0-4804-b589-c30117578e3e/output/network.h               
-/tmp/stm32ai_service/1892e5bf-32d0-4804-b589-c30117578e3e/output/network.c               
+/tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output/network_data_params.h   
+/tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output/network_data_params.c   
+/tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output/network_data.h          
+/tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output/network_data.c          
+/tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output/network_config.h        
+/tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output/network.h               
+/tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output/network.c               
