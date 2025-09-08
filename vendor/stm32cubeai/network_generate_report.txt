@@ -1,21 +1,21 @@
 ST Edge AI Core v2.2.0-20266 2adc00962
-Created date          : 2025-09-04 13:06:15
-Parameters            : generate --model /tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/actor_model-94.tflite --optimization balanced --target stm32f4 --name network --workspace /tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/workspace --output /tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output
+Created date          : 2025-09-08 10:12:31
+Parameters            : generate --model /tmp/stm32ai_service/b69b1e63-befa-40f4-bdc3-6a17e9fd729a/actor_model-95.tflite --optimization balanced --target stm32f4 --name network --workspace /tmp/stm32ai_service/b69b1e63-befa-40f4-bdc3-6a17e9fd729a/workspace --output /tmp/stm32ai_service/b69b1e63-befa-40f4-bdc3-6a17e9fd729a/output
 
 Exec/report summary (generate)
 ---------------------------------------------------------------------------------------------------------
-model file         :   /tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/actor_model-94.tflite   
+model file         :   /tmp/stm32ai_service/b69b1e63-befa-40f4-bdc3-6a17e9fd729a/actor_model-95.tflite   
 type               :   tflite                                                                            
 c_name             :   network                                                                           
 compression        :   lossless                                                                          
 options            :   allocate-inputs, allocate-outputs                                                 
 optimization       :   balanced                                                                          
 target/series      :   stm32f4                                                                           
-workspace dir      :   /tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/workspace               
-output dir         :   /tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output                  
+workspace dir      :   /tmp/stm32ai_service/b69b1e63-befa-40f4-bdc3-6a17e9fd729a/workspace               
+output dir         :   /tmp/stm32ai_service/b69b1e63-befa-40f4-bdc3-6a17e9fd729a/output                  
 model_fmt          :   float                                                                             
-model_name         :   actor_model94                                                                     
-model_hash         :   0x488a3d3b312014d1f23922c94c08ec98                                                
+model_name         :   actor_model95                                                                     
+model_hash         :   0x128c4f84d4a213530d2ce19e320d2106                                                
 params #           :   10,820 items (42.27 KiB)                                                          
 ---------------------------------------------------------------------------------------------------------
 input 1/1          :   'serving_default_args_00', f32(1x34), 136 Bytes, activations                      
@@ -27,7 +27,7 @@ ram (total)        :   512 B (512 B) = 512 + 0 + 0
 ---------------------------------------------------------------------------------------------------------
 (*) 'input'/'output' buffers are allocated in the activations buffer
 
-Model name - actor_model94
+Model name - actor_model95
 ------ ------------------------------------------------ ------------- -------------- ------- -------------------------------- --- ----------------- ----------------- ------------------ 
 m_id   layer (type,original)                            oshape        param/size        macc                     connected to   | c_size            c_macc            c_type             
 ------ ------------------------------------------------ ------------- -------------- ------- -------------------------------- --- ----------------- ----------------- ------------------ 
@@ -68,7 +68,7 @@ model/c-model: macc=12,740/12,740  weights=43,280/43,280  activations=--/512 io=
 
 Generated C-graph summary
 ------------------------------------------------------------------------------------------------------------------------
-model name            : actor_model94
+model name            : actor_model95
 c-name                : network
 c-node #              : 7
 c-array #             : 16
@@ -204,10 +204,10 @@ macc=12,740 weights=43,280 act=512 ram_io=0
 
 Generated files (7)
 ---------------------------------------------------------------------------------------- 
-/tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output/network_data_params.h   
-/tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output/network_data_params.c   
-/tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output/network_data.h          
-/tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output/network_data.c          
-/tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output/network_config.h        
-/tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output/network.h               
-/tmp/stm32ai_service/6418f52e-d76d-4d2e-97b5-3a0645d61977/output/network.c               
+/tmp/stm32ai_service/b69b1e63-befa-40f4-bdc3-6a17e9fd729a/output/network_data_params.h   
+/tmp/stm32ai_service/b69b1e63-befa-40f4-bdc3-6a17e9fd729a/output/network_data_params.c   
+/tmp/stm32ai_service/b69b1e63-befa-40f4-bdc3-6a17e9fd729a/output/network_data.h          
+/tmp/stm32ai_service/b69b1e63-befa-40f4-bdc3-6a17e9fd729a/output/network_data.c          
+/tmp/stm32ai_service/b69b1e63-befa-40f4-bdc3-6a17e9fd729a/output/network_config.h        
+/tmp/stm32ai_service/b69b1e63-befa-40f4-bdc3-6a17e9fd729a/output/network.h               
+/tmp/stm32ai_service/b69b1e63-befa-40f4-bdc3-6a17e9fd729a/output/network.c               
