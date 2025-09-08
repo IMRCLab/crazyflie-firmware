@@ -165,10 +165,10 @@ void controllerRLFirmware(control_t *control,
                                state->velocity.y,
                                state->velocity.z);
   // struct vec vel_body  = qvrot(qinv(q), vel_world);
-  // struct vec pos_des   = mkvec(setpoint->position.x,
-  //                               setpoint->position.y,
-  //                               setpoint->position.z);
-  struct vec pos_des   = mkvec( 0.0f, 0.0f, 1.0f);
+  struct vec pos_des   = mkvec(setpoint->position.x,
+                                setpoint->position.y,
+                                setpoint->position.z);
+  // struct vec pos_des   = mkvec( 0.0f, 0.0f, 1.0f);
   struct vec pos       = mkvec(state->position.x,
                                 state->position.y,
                                 state->position.z);
