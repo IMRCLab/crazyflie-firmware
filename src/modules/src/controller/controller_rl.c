@@ -312,6 +312,10 @@ LOG_ADD_CORE(LOG_FLOAT, in27, &in_data[27])
 LOG_ADD_CORE(LOG_FLOAT, in28, &in_data[28])
 LOG_ADD_CORE(LOG_FLOAT, in29, &in_data[29])
 LOG_ADD_CORE(LOG_FLOAT, in30, &in_data[30])
+LOG_ADD_CORE(LOG_FLOAT, in31, &in_data[31])
+LOG_ADD_CORE(LOG_FLOAT, in32, &in_data[32])
+LOG_ADD_CORE(LOG_FLOAT, in33, &in_data[33])
+
 
 LOG_ADD_CORE(LOG_FLOAT, out0, &out_data[0])
 LOG_ADD_CORE(LOG_FLOAT, out1, &out_data[1])
