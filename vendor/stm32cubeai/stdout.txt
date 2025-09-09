@@ -1,9 +1,9 @@
->>> stedgeai generate --model actor_model-95.tflite --optimization balanced --target stm32f4 --name network --workspace workspace --output output
+>>> stedgeai generate --model actor_model-96.tflite --optimization balanced --target stm32f4 --name network --workspace workspace --output output
 ST Edge AI Core v2.2.0-20266 2adc00962
 Creating c (debug) info json file network_c_info.json
  Exec/report summary (generate)
  ---------------------------------------------------------------------------------------------------------
- model file         :   actor_model-95.tflite   
+ model file         :   actor_model-96.tflite   
  type               :   tflite                                                                            
  c_name             :   network                                                                           
  compression        :   lossless                                                                          
@@ -13,8 +13,8 @@ Creating c (debug) info json file network_c_info.json
  workspace dir      :   workspace               
  output dir         :   output                  
  model_fmt          :   float                                                                             
- model_name         :   actor_model95                                                                     
- model_hash         :   0x128c4f84d4a213530d2ce19e320d2106                                                
+ model_name         :   actor_model96                                                                     
+ model_hash         :   0xde051d679e7766c97eb349dcc515789b                                                
  params #           :   10,820 items (42.27 KiB)                                                          
  ---------------------------------------------------------------------------------------------------------
  input 1/1          :   'serving_default_args_00', f32(1x34), 136 Bytes, activations                      
@@ -64,4 +64,4 @@ Computing AI RT data/code size (target=stm32f4)..
  network.h
  network.c
 Creating txt report file network_generate_report.txt
-elapsed time (generate): 5.852s
+elapsed time (generate): 3.681s

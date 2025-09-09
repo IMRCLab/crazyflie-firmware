@@ -443,56 +443,56 @@
   ],
   "environment": {
     "generated_model": {
-      "generated_time": "2025-09-08T10:12:30+0000",
+      "generated_time": "2025-09-09T13:20:20+0000",
       "model_files": [
         {
           "name": "network_data_params.h",
-          "signature": "0x37e16ab4e4a9cbd739bada5ea166702b"
+          "signature": "0xef901fa06f1bbd58721b2ff271656226"
         },
         {
           "name": "network_data_params.c",
-          "signature": "0xd9ba4d9414806a96631c2e9559d15e7f"
+          "signature": "0x8aa99a6517675fd5a23349d6d02d6881"
         },
         {
           "name": "network_data.h",
-          "signature": "0xf09f1cfa516b6a357c2b4076f9cfde25"
+          "signature": "0x91e9f3c39cafbee59ea8168cd308eee2"
         },
         {
           "name": "network_data.c",
-          "signature": "0xae82b0c3a9a68f895411cd3237dc5e46"
+          "signature": "0x5ceb0764ef45b047c6f27f99ef2f3cd9"
         },
         {
           "name": "network_config.h",
-          "signature": "0x55cec305213d89f3b0c3d5d47b10e730"
+          "signature": "0xf57e24d75a646ccc970b29572d6d19e3"
         },
         {
           "name": "network.h",
-          "signature": "0xd7c2e90197395ef2c5eaf44526af6e9d"
+          "signature": "0xca7e9d1129d0b300c04eb971751c2307"
         },
         {
           "name": "network.c",
-          "signature": "0xa5715ce52ca81e2dbeda56d78c256722"
+          "signature": "0x056ed7fef0a8c7347a38077f0160b429"
         }
       ],
       "name": "network"
     },
-    "network_signature": "0x29a916bb2386c59d",
+    "network_signature": "0x7438fc06d9a0cf09",
     "test_name": "",
     "tools": [
       {
-        "arguments": "generate --model /tmp/stm32ai_service/b69b1e63-befa-40f4-bdc3-6a17e9fd729a/actor_model-95.tflite --optimization balanced --target stm32f4 --name network --workspace /tmp/stm32ai_service/b69b1e63-befa-40f4-bdc3-6a17e9fd729a/workspace --output /tmp/stm32ai_service/b69b1e63-befa-40f4-bdc3-6a17e9fd729a/output",
+        "arguments": "generate --model /tmp/stm32ai_service/06df124c-fe1c-443c-8ea7-d3b76405d509/actor_model-96.tflite --optimization balanced --target stm32f4 --name network --workspace /tmp/stm32ai_service/06df124c-fe1c-443c-8ea7-d3b76405d509/workspace --output /tmp/stm32ai_service/06df124c-fe1c-443c-8ea7-d3b76405d509/output",
         "environment": [
           "STATS_TYPE=stmai_webservice"
         ],
         "input_model": {
           "model_files": [
             {
-              "name": "actor_model-95.tflite",
-              "signature": "0x128c4f84d4a213530d2ce19e320d2106"
+              "name": "actor_model-96.tflite",
+              "signature": "0xde051d679e7766c97eb349dcc515789b"
             }
           ],
           "n_params": 10820,
-          "name": "actor_model95",
+          "name": "actor_model96",
           "size": 43280,
           "type": "tflite"
         },
@@ -593,7 +593,7 @@
       "inputs": [
         102
       ],
-      "name": "actor_model95",
+      "name": "actor_model96",
       "nodes": [
         {
           "attributes": {
