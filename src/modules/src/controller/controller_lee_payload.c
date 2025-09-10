@@ -1594,8 +1594,8 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     if ((self->indi & 1) && rpm_deck_available) {
       f_indi_payload = vadd(vscl(self->mp, acc_), vscl(self->tension, self->qi));
     }
-    self->F_d = vsub(vscl(self->mp ,vadd5(
-          veltmul(self->Kpos_A, vsub(plAcc_d, acc_)),
+    self->F_d = vsub(vscl(self->mp ,vadd4(
+          // veltmul(self->Kpos_A, vsub(plAcc_d, acc_)),
           plAcc_d,
           veltmul(self->Kpos_P, plpos_e),
           veltmul(self->Kpos_D, plvel_e),

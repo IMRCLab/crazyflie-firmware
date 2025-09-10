@@ -52,6 +52,7 @@ CDC 2010
 #include "debug.h"
 
 #include "nn.h"
+#include "nn_null.h"
 #include "usec_time.h"
 float nn_inference_time;
 
@@ -80,6 +81,7 @@ static controllerLee_t g_self = {
   // INDI
   .indi = 0,
   .use_nn = 0,
+  .learn_online = 0,
 };
 
 
@@ -133,6 +135,9 @@ void controllerLeeInit(controllerLee_t* self)
 
   if (self->use_nn) {
     DEBUG_PRINT("Using Neural Network\n");
+    if (self->learn_online) {
+      DEBUG_PRINT("Learning Online\n");
+    }
   } else {
     DEBUG_PRINT("No NN\n");
   }
@@ -187,6 +192,8 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
                                          const state_t *state,
                                          const uint32_t tick)
 {
+
+  float dataset_entry[6];
 
   if (!RATE_DO_EXECUTE(ATTITUDE_RATE, tick)) {
     return;
@@ -298,8 +305,16 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
       self->input_vec[16] = motorsGetRatio(1) / 10000.f;
       self->input_vec[17] = motorsGetRatio(2) / 10000.f;
       self->input_vec[18] = motorsGetRatio(3) / 10000.f;
-
-      const float *model_output = nn_forward(self->input_vec);
+      
+      const float *model_output;
+      if (self->learn_online)
+      {
+        model_output = nn_forward_null(self->input_vec);
+      }
+      else
+      {
+        model_output = nn_forward(self->input_vec);
+      }
       self->nn_output[0] = model_output[0];
       self->nn_output[1] = model_output[1];
       self->nn_output[2] = model_output[2];
@@ -348,6 +363,10 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
       //   DEBUG_PRINT("INDI p %f %f %f, %f %f %f\n", (double)self->a_rpm_filtered.x, (double)self->a_rpm_filtered.y, (double)self->a_rpm_filtered.z, (double)self->a_imu_filtered.x, (double)self->a_imu_filtered.y, (double)self->a_imu_filtered.z);
       // }
     }
+    struct vec F_a = vadd(a_indi, a_nn);
+    dataset_entry[0] = F_a.x;
+    dataset_entry[1] = F_a.y;
+    dataset_entry[2] = F_a.z;
     struct vec F_d = vsub2(a_d, a_indi, a_nn);
     control->thrustSi = self->mass*vdot(F_d, mvmul(R, z));
     self->thrustSi = control->thrustSi;
@@ -442,7 +461,6 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     self->omega_des_dot.z = (B1*E3-B3*E1)/(B1*C3);
   }
 
-
   self->omega_r = mvmul(mmul(mtranspose(R), self->R_des), omega_des);
 
   struct vec omega_error = vsub(self->omega, self->omega_r);
@@ -504,12 +522,20 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     //   DEBUG_PRINT("INDI a %f %f %f, %f %f %f\n", (double)self->tau_rpm_filtered.x, (double)self->tau_rpm_filtered.y, (double)self->tau_rpm_filtered.z, (double)self->tau_imu_filtered.x, (double)self->tau_imu_filtered.y, (double)self->tau_imu_filtered.z);
     // }
   }
+  struct vec tau_a = vadd(indi_moments, u_nn);
+  dataset_entry[3] = tau_a.x;
+  dataset_entry[4] = tau_a.y;
+  dataset_entry[5] = tau_a.z;
   self->u = vsub2(self->u, indi_moments, u_nn);
   control->controlMode = controlModeForceTorque;
   control->torque[0] = self->u.x;
   control->torque[1] = self->u.y;
   control->torque[2] = self->u.z;
 
+  if (self->learn_online) {
+    add_dataset_entry(self->input_vec, dataset_entry);
+    backprop(0.0001);
+  }
   // ticks = usecTimestamp() - startTime;
 }
 

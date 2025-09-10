@@ -71,18 +71,48 @@ static float thrustToTorque = 0.005964552f;
 // static float e01 = 26.077196474667165;
 
 
-// thrust = a * pwm^2 + b * pwm
-//    where PWM is normalized (range 0...1)
-//          thrust is in Newtons (per rotor)
-static float pwmToThrustA = 0.091492681f;
-static float pwmToThrustB = 0.067673604f;
+// // thrust = a * pwm^2 + b * pwm
+// //    where PWM is normalized (range 0...1)
+// //          thrust is in Newtons (per rotor)
+// static float pwmToThrustA = 0.091492681f;
+// static float pwmToThrustB = 0.067673604f;
 
 // pwm_normalized = rpm2pwmA + b * rpm
 float rpm2pwmA = -0.12128823778162669f;
 float rpm2pwmB = 4.2310782971594264e-05f;
 float kappa_f[4]; // force[i] = kappa_f[i] * rpm^2
 
+
+
+// thrust = a * pwm^2 + b * pwm
+//    where PWM is normalized (range 0...1)
+//          thrust is in Newtons (per rotor)
+static float pwmToThrustA = 0.091492681f;
+static float pwmToThrustB = 0.067673604f;
+
+// voltage, thrust -> pwm
+static float d00 = -0.021749315756359296;
+static float d10 = 0.153990538574346;
+static float d01 = 0.0911156184449841;
+static float d11 = -0.061258089207338086;
+static float d20 = -0.002852944831382887;
+
 static float motorForces[STABILIZER_NR_OF_MOTORS];
+
+// set thrust for motor (in grams)
+static uint16_t thrustToPWM(float batteryVoltage, float thrustGram)
+{
+  if (thrustGram > 0) {
+    // normalized voltage
+    float v = batteryVoltage / 4.2f;
+    // normalized pwm:
+    float pwm = d00 + d10 * thrustGram + d01 * v + d20 * thrustGram * thrustGram + d11 * thrustGram * v;
+
+    return pwm * UINT16_MAX;
+  }
+
+  return 0;
+}
 
 int powerDistributionMotorType(uint32_t id)
 {
@@ -140,18 +170,26 @@ static void powerDistributionForceTorque(const control_t *control, motors_thrust
   motorForces[2] = thrustPart + rollPart + pitchPart - yawPart;
   motorForces[3] = thrustPart + rollPart - pitchPart + yawPart;
 
-  // float batteryVoltage = pmGetBatteryVoltage();
+  float batteryVoltage = pmGetBatteryVoltage();
+  // for (int motorIndex = 0; motorIndex < STABILIZER_NR_OF_MOTORS; motorIndex++) {
+  //   float motorForce = motorForces[motorIndex];
+  //   if (motorForce < 0.0f) {
+  //     motorForce = 0.0f;
+  //   }
+
+  //   float motor_pwm = (-pwmToThrustB + sqrtf(pwmToThrustB * pwmToThrustB + 4.0f * pwmToThrustA * motorForce)) / (2.0f * pwmToThrustA);
+  //   float motor_rpm = sqrtf(motorForce / kappa_f[motorIndex]);
+  //   float motor_pwm = rpm2pwmA + rpm2pwmB * motor_rpm;
+
+  //   motorThrustUncapped->list[motorIndex] = motor_pwm * UINT16_MAX;
+  // }
   for (int motorIndex = 0; motorIndex < STABILIZER_NR_OF_MOTORS; motorIndex++) {
     float motorForce = motorForces[motorIndex];
     if (motorForce < 0.0f) {
       motorForce = 0.0f;
     }
-
-    // float motor_pwm = (-pwmToThrustB + sqrtf(pwmToThrustB * pwmToThrustB + 4.0f * pwmToThrustA * motorForce)) / (2.0f * pwmToThrustA);
-    float motor_rpm = sqrtf(motorForce / kappa_f[motorIndex]);
-    float motor_pwm = rpm2pwmA + rpm2pwmB * motor_rpm;
-
-    motorThrustUncapped->list[motorIndex] = motor_pwm * UINT16_MAX;
+    float motorForceInGrams = motorForce * 1000.0f / 9.81f;
+    motorThrustUncapped->list[motorIndex] = thrustToPWM(batteryVoltage, motorForceInGrams);
   }
 }
 
