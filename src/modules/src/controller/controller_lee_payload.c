@@ -247,26 +247,13 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
 
     if ((self->indi & 1) && rpm_deck_available) {
       float f_rpm = t1 + t2 + t3 + t4;
-      // a_payload[i] = (1/(m+mp))*(np.dot(qi[i],f*R@e3) - m*L[i]*np.dot(qidot[i],qidot[i]))*qi[i] - gravity_comp
-      float term1 = vdot(self->qi, vscl(f_rpm, R_z));
-      float term2 = self->mass * l * vdot(self->qidot, self->qidot);
-      float scale = 1.0f / (self->mass + self->mp);
-
-      self->a_payload = vsub(vscl(scale * (term1 - term2), self->qi), gravity_comp);
-
-
-      self->a_rpm = vsub(vsub(vscl(f_rpm / self->mass, mvmul(R, z)), gravity_comp), vscl(self->mp / self->mass, vadd(self->a_payload, gravity_comp)));
-      // self->a_rpm = vclampnorm(self->a_rpm, 6.5);
-
+      self->a_rpm = vsub(vsub(vscl(f_rpm / self->mass, mvmul(R, z)), gravity_comp), vscl(self->mp / self->mass, vadd(plAcc, gravity_comp)));
       update_butterworth_2_low_pass_vec(filter_acc_rpm, self->a_rpm);
-
-      // compute acceleration based on IMU (world frame, SI unit, no gravity)
-      // self->a_imu = vscl(9.81, mkvec(sensors->accNoLpf.x, sensors->accNoLpf.y, sensors->accNoLpf.z));
+      
       self->a_imu = mkvec(sensors->accNoLpf.x, sensors->accNoLpf.y, sensors->accNoLpf.z);
       self->a_imu = mvmul(R, self->a_imu); // to world frame
       self->a_imu.z-=1;
       self->a_imu = vscl(9.81, self->a_imu); // to SI unit (m/s^2)
-      // self->a_imu = vclampnorm(self->a_imu, 20);
       update_butterworth_2_low_pass_vec(filter_acc_imu, self->a_imu);
 
       self->a_rpm_filtered = get_butterworth_2_low_pass_vec(filter_acc_rpm);
