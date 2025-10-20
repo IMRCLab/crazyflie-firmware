@@ -75,7 +75,6 @@ static Butterworth2LowPass filter_acc_imu[3];
 static Butterworth2LowPass filter_tau_rpm[3];
 static Butterworth2LowPass filter_tau_imu[3];
 
-// static Butterworth2LowPass filter_angular_acc[3];
 
 extern float rpm2pwmA;
 extern float rpm2pwmB;
@@ -110,7 +109,7 @@ void controllerLeePayloadInit(controllerLeePayload_t* self)
 
   rpm_deck_available = (paramGetUint(idDeckBcRpm) == 1);
 
-  const float cutoff_acc = 150; // Hz
+  const float cutoff_acc = 100; // Hz
 	for (int8_t i = 0; i < 3; i++) {
 		init_butterworth_2_low_pass(&filter_acc_rpm[i], 1 / (2 * M_PI_F * cutoff_acc), 1.0 / ATTITUDE_RATE, 0.0f);
 		init_butterworth_2_low_pass(&filter_acc_imu[i], 1 / (2 * M_PI_F * cutoff_acc), 1.0 / ATTITUDE_RATE, 0.0f);
@@ -230,7 +229,6 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     struct vec plvel_e = vclampscl(vsub(plVel_d, plVel), -self->Kpos_D_limit, self->Kpos_D_limit);
     self->i_error_pos = vadd(self->i_error_pos, vscl(dt, plpos_e));
 
-    struct vec plAcc_w_gcomp = vadd(plAcc, gravity_comp);
   
     struct quat q = mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w);
     struct mat33 R = quat2rotmat(q);
@@ -239,6 +237,47 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     // cable length
     float l = vmag(vsub(plPos, statePos));
     self->attachement_points[0].l = l; // assuming only 1 uav connected to payload
+    struct vec a_indi = vzero();
+    self->a_rpm_filtered = vzero();
+    self->a_imu_filtered = vzero();
+    //directional unit vector qi and its derivative qidot from UAV to payload
+    self->qi = vnormalize(vsub(plPos, statePos));
+    self->qidot = vdiv(vsub(plVel, stateVel),l);
+    self->omega_c = vcross(self->qi, self->qidot); // cable angular velocity
+
+    if ((self->indi & 1) && rpm_deck_available) {
+      float f_rpm = t1 + t2 + t3 + t4;
+      // a_payload[i] = (1/(m+mp))*(np.dot(qi[i],f*R@e3) - m*L[i]*np.dot(qidot[i],qidot[i]))*qi[i] - gravity_comp
+      float term1 = vdot(self->qi, vscl(f_rpm, R_z));
+      float term2 = self->mass * l * vdot(self->qidot, self->qidot);
+      float scale = 1.0f / (self->mass + self->mp);
+
+      self->a_payload = vsub(vscl(scale * (term1 - term2), self->qi), gravity_comp);
+
+
+      self->a_rpm = vsub(vsub(vscl(f_rpm / self->mass, mvmul(R, z)), gravity_comp), vscl(self->mp / self->mass, vadd(self->a_payload, gravity_comp)));
+      // self->a_rpm = vclampnorm(self->a_rpm, 6.5);
+
+      update_butterworth_2_low_pass_vec(filter_acc_rpm, self->a_rpm);
+
+      // compute acceleration based on IMU (world frame, SI unit, no gravity)
+      // self->a_imu = vscl(9.81, mkvec(sensors->accNoLpf.x, sensors->accNoLpf.y, sensors->accNoLpf.z));
+      self->a_imu = mkvec(sensors->accNoLpf.x, sensors->accNoLpf.y, sensors->accNoLpf.z);
+      self->a_imu = mvmul(R, self->a_imu); // to world frame
+      self->a_imu.z-=1;
+      self->a_imu = vscl(9.81, self->a_imu); // to SI unit (m/s^2)
+      // self->a_imu = vclampnorm(self->a_imu, 20);
+      update_butterworth_2_low_pass_vec(filter_acc_imu, self->a_imu);
+
+      self->a_rpm_filtered = get_butterworth_2_low_pass_vec(filter_acc_rpm);
+      self->a_imu_filtered = get_butterworth_2_low_pass_vec(filter_acc_imu);
+      a_indi = vsub(self->a_imu_filtered, self->a_rpm_filtered);
+      // DEBUG
+      // if (tick % 500 == 0) {
+      //   DEBUG_PRINT("INDI p %f %f %f, %f %f %f\n", (double)self->a_rpm_filtered.x, (double)self->a_rpm_filtered.y, (double)self->a_rpm_filtered.z, (double)self->a_imu_filtered.x, (double)self->a_imu_filtered.y, (double)self->a_imu_filtered.z);
+      // }
+    }
+
     // payload desired force
     self->F_d = vscl(self->mp, 
       vadd5(
@@ -252,11 +291,6 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     self->desVirtInp.x = self->F_d.x;
     self->desVirtInp.y = self->F_d.y;
     self->desVirtInp.z = self->F_d.z;
-
-    //directional unit vector qi and its derivative qidot from UAV to payload
-    self->qi = vnormalize(vsub(plPos, statePos));
-    self->qidot = vdiv(vsub(plVel, stateVel),l);
-    self->omega_c = vcross(self->qi, self->qidot); // cable angular velocity
 
     struct mat33 qiqiT = vecmult(self->qi);
     // projection of the desired virtual input along qi
@@ -311,32 +345,6 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
 
     struct vec u_ctrl = vadd(u_parallel, u_perpind); // total desired force by the UAV on the cable
     //------------------------------------------------------------------------------------------//
-    struct vec a_indi = vzero();
-    self->a_rpm_filtered = vzero();
-    self->a_imu_filtered = vzero();
-    if ((self->indi & 1) && rpm_deck_available) {
-
-      float f_rpm = t1 + t2 + t3 + t4;
-      // a_rpm = (f_rpm / m) * R * z - ge3 - (mp/m)*(plAcc + ge3)
-      self->a_rpm = vsub(vsub(vscl(f_rpm / self->mass, mvmul(R, z)), gravity_comp), vscl(self->mp / self->mass, plAcc_w_gcomp));
-      self->a_rpm = vclampnorm(self->a_rpm, 6.5);
-
-      update_butterworth_2_low_pass_vec(filter_acc_rpm, self->a_rpm);
-
-      // compute acceleration based on IMU (world frame, SI unit, no gravity)
-      self->a_imu = vscl(9.81, mkvec(state->acc.x, state->acc.y, state->acc.z));
-      // self->a_imu = vclampnorm(self->a_imu, 6.5);
-      update_butterworth_2_low_pass_vec(filter_acc_imu, self->a_imu);
-
-      self->a_rpm_filtered = get_butterworth_2_low_pass_vec(filter_acc_rpm);
-      self->a_imu_filtered = get_butterworth_2_low_pass_vec(filter_acc_imu);
-      a_indi = vsub(self->a_imu_filtered, self->a_rpm_filtered);
-
-      // DEBUG
-      // if (tick % 500 == 0) {
-      //   DEBUG_PRINT("INDI p %f %f %f, %f %f %f\n", (double)self->a_rpm_filtered.x, (double)self->a_rpm_filtered.y, (double)self->a_rpm_filtered.z, (double)self->a_imu_filtered.x, (double)self->a_imu_filtered.y, (double)self->a_imu_filtered.z);
-      // }
-    }
 
     // UAV Lee controller
     struct vec pos_d = vsub(plPos_d, vscl(l, self->qdi)); // desired UAV position
@@ -717,9 +725,9 @@ LOG_ADD(LOG_FLOAT, tau_imu_fx, &g_self.tau_imu_filtered.x)  // compare to torque
 LOG_ADD(LOG_FLOAT, tau_imu_fy, &g_self.tau_imu_filtered.y)  // compare to torquey
 LOG_ADD(LOG_FLOAT, tau_imu_fz, &g_self.tau_imu_filtered.z)  // compare to torquez
 
-LOG_ADD(LOG_FLOAT, a_rpmx, &g_self.a_rpm.x)
-LOG_ADD(LOG_FLOAT, a_rpmy, &g_self.a_rpm.y)
-LOG_ADD(LOG_FLOAT, a_rpmz, &g_self.a_rpm.z)
+LOG_ADD(LOG_FLOAT, a_rpmx, &g_self.a_payload.x)
+LOG_ADD(LOG_FLOAT, a_rpmy, &g_self.a_payload.y)
+LOG_ADD(LOG_FLOAT, a_rpmz, &g_self.a_payload.z)
 
 LOG_ADD(LOG_FLOAT, a_rpm_fx, &g_self.a_rpm_filtered.x)
 LOG_ADD(LOG_FLOAT, a_rpm_fy, &g_self.a_rpm_filtered.y)

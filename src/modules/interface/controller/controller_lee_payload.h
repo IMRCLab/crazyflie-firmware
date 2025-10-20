@@ -105,6 +105,7 @@ typedef struct controllerLeePayload_s {
     struct vec tau_imu_filtered;
     struct vec tau_imu;
 
+    struct vec a_payload;
     struct vec a_rpm;
     struct vec a_rpm_filtered;
     struct vec a_imu;
