@@ -168,6 +168,7 @@ typedef struct zDistance_s {
 
 typedef struct sensorData_s {
   Axis3f acc;               // Gs
+  Axis3f accNoLpf;          // no software Lpf
   Axis3f gyro;              // deg/s
   Axis3f gyroNoLpf;         // no software Lpf
   Axis3f mag;               // gauss

@@ -108,6 +108,8 @@ static struct bmp3_dev   bmp3xxDev;
 
 static xQueueHandle accelerometerDataQueue;
 STATIC_MEM_QUEUE_ALLOC(accelerometerDataQueue, 1, sizeof(Axis3f));
+static xQueueHandle accNoLpfDataQueue;
+STATIC_MEM_QUEUE_ALLOC(accNoLpfDataQueue, 1, sizeof(Axis3f));
 static xQueueHandle gyroDataQueue;
 STATIC_MEM_QUEUE_ALLOC(gyroDataQueue, 1, sizeof(Axis3f));
 static xQueueHandle gyroNoLpfDataQueue;
@@ -277,6 +279,7 @@ void sensorsBmi088Bmp3xxAcquire(sensorData_t *sensors)
   sensorsReadGyro(&sensors->gyro);
   xQueueReceive(gyroNoLpfDataQueue, &sensors->gyroNoLpf, 0);
   sensorsReadAcc(&sensors->acc);
+  xQueueReceive(accNoLpfDataQueue, &sensors->accNoLpf, 0);
   sensorsReadMag(&sensors->mag);
   sensorsReadBaro(&sensors->baro);
   sensors->interruptTimestamp = sensorData.interruptTimestamp;
@@ -342,6 +345,10 @@ static void sensorsTask(void *param)
       accScaledIMU.z = accelRaw.z * SENSORS_BMI088_G_PER_LSB_CFG / accScale;
       sensorsAlignToAirframe(&accScaledIMU, &accScaled);
       sensorsAccAlignToGravity(&accScaled, &sensorData.acc);
+      sensorData.accNoLpf.x = sensorData.acc.x;
+      sensorData.accNoLpf.y = sensorData.acc.y;
+      sensorData.accNoLpf.z = sensorData.acc.z;
+
       applyAxis3fLpf((lpf2pData*)(&accLpf), &sensorData.acc);
 
       measurement.type = MeasurementTypeAcceleration;
@@ -369,6 +376,7 @@ static void sensorsTask(void *param)
       }
     }
     xQueueOverwrite(accelerometerDataQueue, &sensorData.acc);
+    xQueueOverwrite(accNoLpfDataQueue, &sensorData.accNoLpf);
     xQueueOverwrite(gyroDataQueue, &sensorData.gyro);
     xQueueOverwrite(gyroNoLpfDataQueue, &sensorData.gyroNoLpf);
     if (isBarometerPresent)
@@ -562,6 +570,7 @@ static void sensorsDeviceInit(void)
 static void sensorsTaskInit(void)
 {
   accelerometerDataQueue = STATIC_MEM_QUEUE_CREATE(accelerometerDataQueue);
+  accNoLpfDataQueue = STATIC_MEM_QUEUE_CREATE(accNoLpfDataQueue);
   gyroDataQueue = STATIC_MEM_QUEUE_CREATE(gyroDataQueue);
   gyroNoLpfDataQueue = STATIC_MEM_QUEUE_CREATE(gyroNoLpfDataQueue);
   magnetometerDataQueue = STATIC_MEM_QUEUE_CREATE(magnetometerDataQueue);
