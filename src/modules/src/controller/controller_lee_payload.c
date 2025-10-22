@@ -75,6 +75,13 @@ static Butterworth2LowPass filter_acc_imu[3];
 static Butterworth2LowPass filter_tau_rpm[3];
 static Butterworth2LowPass filter_tau_imu[3];
 
+static Butterworth2LowPass filter_f_payload_rpm[3];
+static Butterworth2LowPass filter_f_payload_imu[3];
+
+static Butterworth2LowPass filter_qidot[3];
+
+static Butterworth2LowPass filter_f_cable_rpm[3];
+static Butterworth2LowPass filter_omega_c_dot[3];
 
 extern float rpm2pwmA;
 extern float rpm2pwmB;
@@ -123,6 +130,22 @@ void controllerLeePayloadInit(controllerLeePayload_t* self)
   init_butterworth_2_low_pass(&filter_tau_rpm[2], 1 / (2 * M_PI_F * cutoff_z), 1.0 / ATTITUDE_RATE, 0.0f);
   init_butterworth_2_low_pass(&filter_tau_imu[2], 1 / (2 * M_PI_F * cutoff_z), 1.0 / ATTITUDE_RATE, 0.0f);
 
+  const float cutoff_payload = 75; // Hz
+	for (int8_t i = 0; i < 3; i++) {
+		init_butterworth_2_low_pass(&filter_f_payload_rpm[i], 1 / (2 * M_PI_F * cutoff_payload), 1.0 / ATTITUDE_RATE, 0.0f);
+		init_butterworth_2_low_pass(&filter_f_payload_imu[i], 1 / (2 * M_PI_F * cutoff_payload), 1.0 / ATTITUDE_RATE, 0.0f);
+  }
+
+  const float cutoff_qidot = 100; // Hz
+	for (int8_t i = 0; i < 3; i++) {
+		init_butterworth_2_low_pass(&filter_qidot[i], 1 / (2 * M_PI_F * cutoff_qidot), 1.0 / ATTITUDE_RATE, 0.0f);
+  }
+
+  const float cutoff_cable = 100; // Hz
+	for (int8_t i = 0; i < 3; i++) {
+		init_butterworth_2_low_pass(&filter_f_cable_rpm[i], 1 / (2 * M_PI_F * cutoff_cable), 1.0 / ATTITUDE_RATE, 0.0f);
+		init_butterworth_2_low_pass(&filter_omega_c_dot[i], 1 / (2 * M_PI_F * cutoff_cable), 1.0 / ATTITUDE_RATE, 0.0f);
+  }
 
   if (rpm_deck_available && (self->indi == 3)) {
     DEBUG_PRINT("Using INDI (both)\n");
@@ -136,7 +159,9 @@ void controllerLeePayloadInit(controllerLeePayload_t* self)
 
   self->timestamp_prev = usecTimestamp();
   self->omega_prev = vzero();
-
+  
+  self->timestamp_omega_c_prev = usecTimestamp();
+  self->omega_c_prev = vzero();
   controllerLeePayloadReset(self);
 }
 
@@ -237,13 +262,22 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     // cable length
     float l = vmag(vsub(plPos, statePos));
     self->attachement_points[0].l = l; // assuming only 1 uav connected to payload
-    struct vec a_indi = vzero();
-    self->a_rpm_filtered = vzero();
-    self->a_imu_filtered = vzero();
     //directional unit vector qi and its derivative qidot from UAV to payload
     self->qi = vnormalize(vsub(plPos, statePos));
     self->qidot = vdiv(vsub(plVel, stateVel),l);
+    update_butterworth_2_low_pass_vec(filter_qidot, self->qidot);
+    self->qidot = get_butterworth_2_low_pass_vec(filter_qidot);
     self->omega_c = vcross(self->qi, self->qidot); // cable angular velocity
+    
+    struct vec a_indi = vzero(); // NOT USED
+    struct vec f_indi_payload = vzero(); // used in u_parallel
+    struct vec f_cable_indi = vzero(); // used in u_perpendicular: CURRENTLY DISABLED
+    self->a_rpm_filtered = vzero();
+    self->a_imu_filtered = vzero();
+    self->f_payload_rpm_filtered = vzero();
+    self->f_payload_imu_filtered = vzero();
+    self->f_cable_rpm_filtered = vzero();
+    self->f_cable_imu_filtered = vzero();
 
     if ((self->indi & 1) && rpm_deck_available) {
       float f_rpm = t1 + t2 + t3 + t4;
@@ -258,13 +292,49 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
 
       self->a_rpm_filtered = get_butterworth_2_low_pass_vec(filter_acc_rpm);
       self->a_imu_filtered = get_butterworth_2_low_pass_vec(filter_acc_imu);
-      a_indi = vsub(self->a_imu_filtered, self->a_rpm_filtered);
+      a_indi = vsub(self->a_imu_filtered, self->a_rpm_filtered); // CURRENTLY NOT USED
+
+      struct mat33 eye = meye();
+      struct mat33 qiqiT = vecmult(self->qi);
+      struct mat33 Mq = madd(mscl(self->mp, eye), mscl(self->mass, qiqiT));
+      self->f_payload_rpm = vsub(vsub(vsub(mvmul(qiqiT, vscl(f_rpm, mvmul(R, z))), vscl(self->mass*l*vmag2(self->omega_c), self->qi)), vscl(self->mp, gravity_comp)), vscl(self->mass, mvmul(qiqiT, gravity_comp)));
+      self->f_payload_imu = mvmul(Mq, plAcc);
+
+
+      update_butterworth_2_low_pass_vec(filter_f_payload_rpm, self->f_payload_rpm);
+      update_butterworth_2_low_pass_vec(filter_f_payload_imu, self->f_payload_imu);
+
+      self->f_payload_rpm_filtered = get_butterworth_2_low_pass_vec(filter_f_payload_rpm);
+      self->f_payload_imu_filtered = get_butterworth_2_low_pass_vec(filter_f_payload_imu);
+      f_indi_payload = vsub(self->f_payload_imu_filtered, self->f_payload_rpm_filtered);
+
+      uint64_t timestamp = usecTimestamp();
+      float dt = (timestamp - self->timestamp_omega_c_prev) / 1e6;
+      struct vec omega_c_dot_unfiltered = vdiv(vsub(self->omega_c, self->omega_c_prev), dt);
+      omega_c_dot_unfiltered = vclampnorm(omega_c_dot_unfiltered, 2.0); // rescale to avoid weird outliers
+
+      update_butterworth_2_low_pass_vec(filter_omega_c_dot, omega_c_dot_unfiltered);
+      struct vec omega_c_dot_filtered = get_butterworth_2_low_pass_vec(filter_omega_c_dot);
+
+      self->f_cable_imu = vscl(self->mass*l, omega_c_dot_filtered);
+      struct mat33 skewqi = mcrossmat(self->qi); // skew symmetric matrix of qi
+
+      struct vec term1 = vscl(self->mass, mvmul(skewqi, vadd(self->f_payload_rpm, gravity_comp)));
+      struct vec term2 = mvmul(skewqi, vscl(f_rpm, mvmul(R, z)));
+      self->f_cable_rpm = vsub(term1, term2);
+      update_butterworth_2_low_pass_vec(filter_f_cable_rpm, self->f_cable_rpm);
+      self->f_cable_imu_filtered = self->f_cable_imu;
+      self->f_cable_rpm_filtered = get_butterworth_2_low_pass_vec(filter_f_cable_rpm);
+      f_cable_indi = vsub(self->f_cable_imu_filtered, self->f_cable_rpm_filtered);
+      self->omega_c_prev = self->omega_c;
+      self->timestamp_omega_c_prev = timestamp;
+
+
       // DEBUG
       // if (tick % 500 == 0) {
       //   DEBUG_PRINT("INDI p %f %f %f, %f %f %f\n", (double)self->a_rpm_filtered.x, (double)self->a_rpm_filtered.y, (double)self->a_rpm_filtered.z, (double)self->a_imu_filtered.x, (double)self->a_imu_filtered.y, (double)self->a_imu_filtered.z);
       // }
     }
-
     // payload desired force
     self->F_d = vscl(self->mp, 
       vadd5(
@@ -282,7 +352,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     struct mat33 qiqiT = vecmult(self->qi);
     // projection of the desired virtual input along qi
     struct vec virtualInp = mvmul(qiqiT, self->desVirtInp);
-    struct vec u_parallel = vadd3(virtualInp, vscl(self->mass*l*vmag2(self->omega_c), self->qi), vscl(self->mass, mvmul(qiqiT, vdiv(self->desVirtInp, self->mp))));  
+    struct vec u_parallel = vsub(vadd3(virtualInp, vscl(self->mass*l*vmag2(self->omega_c), self->qi), vscl(self->mass, mvmul(qiqiT, vdiv(self->desVirtInp, self->mp)))), f_indi_payload); // desired force parallel to cable
 
     // desired cable direction and its derivative
     struct mat33 skewqi = mcrossmat(self->qi); // skew symmetric matrix of qi
@@ -312,25 +382,29 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       self->omega_cd_dot = vzero(); // reset omega_cd_dot for now
     }
     // cable error terms
-    struct vec eq  = vclampscl(vcross(self->qdi, self->qi), -self->K_q_limit, self->K_q_limit);
+    self->qi_ref = vneg(vnormalize(self->desVirtInp)); // reference cable direction
+    struct vec eq  = vclampscl(vcross(self->qi_ref, self->qi), -self->K_q_limit, self->K_q_limit);
     struct vec ew  = vclampscl(vadd(self->omega_c, mvmul(skewqi2, self->omega_cd)), -self->K_w_limit, self->K_w_limit);
     
-
-    struct vec u_perpind = vsub(
-      vscl(self->mass*l, 
-        mvmul(skewqi,
-          vadd4(
-            vneg(veltmul(self->K_q, eq)),
-            vneg(veltmul(self->K_w, ew)),
-            vneg(vscl(vdot(self->qi, self->omega_cd), self->qidot)),
-            vneg(mvmul(skewqi2, self->omega_cd_dot))
-          )
-        )
-      ),
-      vscl(self->mass, mvmul(skewqi2, vdiv(self->desVirtInp, self->mp)))
-    );
-
-    struct vec u_ctrl = vadd(u_parallel, u_perpind); // total desired force by the UAV on the cable
+    f_cable_indi = vzero(); // disable cable INDI for now
+    struct vec u_perpind = 
+    vsub( 
+      vsub(
+          vscl(self->mass*l, 
+            mvmul(skewqi,
+              vadd4(
+                vneg(veltmul(self->K_q, eq)),
+                vneg(veltmul(self->K_w, ew)),
+                vneg(vscl(vdot(self->qi, self->omega_cd), self->qidot)),
+                vneg(mvmul(skewqi2, self->omega_cd_dot))
+              )
+            )
+          ),
+          vscl(self->mass, mvmul(skewqi2, vdiv(self->desVirtInp, self->mp)))
+        ),
+        f_cable_indi
+      );
+    struct vec u = vadd(u_parallel, u_perpind); // total desired force by the UAV on the cable
     //------------------------------------------------------------------------------------------//
 
     // UAV Lee controller
@@ -340,11 +414,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     self->uav_pos_d = pos_d;
     self->uav_vel_d = vel_d;
 
-    struct vec u_indi =  vscl(self->mass, a_indi);
-    struct vec u = vsub(u_ctrl, u_indi); // add the PD control of the UAV to the feedforward force u
-    float thrust_ctrl = vdot(u_ctrl, R_z);
-    float thrust_indi = vdot(u_indi, R_z);
-    control->thrustSi = thrust_ctrl - thrust_indi;
+    control->thrustSi = vdot(u, R_z);
     self->thrustSi = control->thrustSi;
     
     // DEBUG PRINTS
@@ -712,9 +782,9 @@ LOG_ADD(LOG_FLOAT, tau_imu_fx, &g_self.tau_imu_filtered.x)  // compare to torque
 LOG_ADD(LOG_FLOAT, tau_imu_fy, &g_self.tau_imu_filtered.y)  // compare to torquey
 LOG_ADD(LOG_FLOAT, tau_imu_fz, &g_self.tau_imu_filtered.z)  // compare to torquez
 
-LOG_ADD(LOG_FLOAT, a_rpmx, &g_self.a_payload.x)
-LOG_ADD(LOG_FLOAT, a_rpmy, &g_self.a_payload.y)
-LOG_ADD(LOG_FLOAT, a_rpmz, &g_self.a_payload.z)
+LOG_ADD(LOG_FLOAT, a_rpmx, &g_self.a_rpm.x)
+LOG_ADD(LOG_FLOAT, a_rpmy, &g_self.a_rpm.y)
+LOG_ADD(LOG_FLOAT, a_rpmz, &g_self.a_rpm.z)
 
 LOG_ADD(LOG_FLOAT, a_rpm_fx, &g_self.a_rpm_filtered.x)
 LOG_ADD(LOG_FLOAT, a_rpm_fy, &g_self.a_rpm_filtered.y)
@@ -728,6 +798,21 @@ LOG_ADD(LOG_FLOAT, a_imu_fx, &g_self.a_imu_filtered.x)
 LOG_ADD(LOG_FLOAT, a_imu_fy, &g_self.a_imu_filtered.y)
 LOG_ADD(LOG_FLOAT, a_imu_fz, &g_self.a_imu_filtered.z)
 
+LOG_ADD(LOG_FLOAT, fpayload_rpm_fx, &g_self.f_payload_rpm_filtered.x)
+LOG_ADD(LOG_FLOAT, fpayload_rpm_fy, &g_self.f_payload_rpm_filtered.y)
+LOG_ADD(LOG_FLOAT, fpayload_rpm_fz, &g_self.f_payload_rpm_filtered.z)
+
+LOG_ADD(LOG_FLOAT, fpayload_imu_fx, &g_self.f_payload_imu_filtered.x)
+LOG_ADD(LOG_FLOAT, fpayload_imu_fy, &g_self.f_payload_imu_filtered.y)
+LOG_ADD(LOG_FLOAT, fpayload_imu_fz, &g_self.f_payload_imu_filtered.z)
+
+LOG_ADD(LOG_FLOAT, fcable_rpm_fx, &g_self.f_cable_rpm_filtered.x)
+LOG_ADD(LOG_FLOAT, fcable_rpm_fy, &g_self.f_cable_rpm_filtered.y)
+LOG_ADD(LOG_FLOAT, fcable_rpm_fz, &g_self.f_cable_rpm_filtered.z)
+
+LOG_ADD(LOG_FLOAT, fcable_imu_fx, &g_self.f_cable_imu_filtered.x)
+LOG_ADD(LOG_FLOAT, fcable_imu_fy, &g_self.f_cable_imu_filtered.y)
+LOG_ADD(LOG_FLOAT, fcable_imu_fz, &g_self.f_cable_imu_filtered.z)
 
 LOG_GROUP_STOP(ctrlLeeP)
 

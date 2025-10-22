@@ -373,7 +373,7 @@ static void stabilizerTask(void* param)
       init_butterworth_2_low_pass(&filter_payload_vel[i], 1 / (2 * M_PI_F * cutoff_vel), 1.0 / ATTITUDE_RATE, 0.0f); // Init vel filter
   }
   for (int8_t i = 0; i < 3; i++) {
-    const float cutoff_acc = 100; // Hz
+    const float cutoff_acc = 70; // Hz
     init_butterworth_2_low_pass(&filter_payload_acc[i], 1 / (2 * M_PI_F * cutoff_acc), 1.0 / ATTITUDE_RATE, 0.0f); // Init acc filter
   }
 
@@ -430,7 +430,7 @@ static void stabilizerTask(void* param)
 
               struct vec last_vel_filtered = mkvec(payload_vel_filtered_last.x, payload_vel_filtered_last.y, payload_vel_filtered_last.z);
               struct vec payload_acc_unfiltered = vdiv(vsub(payload_vel_filtered, last_vel_filtered), dt);
-              payload_acc_unfiltered = vclampnorm(payload_acc_unfiltered, 6.5); // rescale to avoid weird outliers
+              payload_acc_unfiltered = vclampnorm(payload_acc_unfiltered, 9.0); // rescale to avoid weird outliers
               // apply butterworth filter to acceleration
               update_butterworth_2_low_pass_vec(filter_payload_acc, payload_acc_unfiltered);
               payload_acc_filtered = get_butterworth_2_low_pass_vec(filter_payload_acc);

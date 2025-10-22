@@ -99,13 +99,22 @@ typedef struct controllerLeePayload_s {
     uint8_t indi;
     struct vec omega_prev;
     uint64_t timestamp_prev;
+    struct vec omega_c_prev; // previous cable angular velocity
+    uint64_t timestamp_omega_c_prev; // previous timestamp for cable angular velocity
 
     struct vec tau_rpm;
     struct vec tau_rpm_filtered;
     struct vec tau_imu_filtered;
     struct vec tau_imu;
 
-    struct vec a_payload;
+    struct vec f_payload_rpm;
+    struct vec f_payload_rpm_filtered;
+    struct vec f_payload_imu;
+    struct vec f_payload_imu_filtered;
+    struct vec f_cable_rpm;
+    struct vec f_cable_rpm_filtered;
+    struct vec f_cable_imu;
+    struct vec f_cable_imu_filtered;
     struct vec a_rpm;
     struct vec a_rpm_filtered;
     struct vec a_imu;
