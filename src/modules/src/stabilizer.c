@@ -373,7 +373,7 @@ static void stabilizerTask(void* param)
       init_butterworth_2_low_pass(&filter_payload_vel[i], 1 / (2 * M_PI_F * cutoff_vel), 1.0 / ATTITUDE_RATE, 0.0f); // Init vel filter
   }
   for (int8_t i = 0; i < 3; i++) {
-    const float cutoff_acc = 70; // Hz
+    const float cutoff_acc = 30; // Hz
     init_butterworth_2_low_pass(&filter_payload_acc[i], 1 / (2 * M_PI_F * cutoff_acc), 1.0 / ATTITUDE_RATE, 0.0f); // Init acc filter
   }
 

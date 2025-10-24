@@ -130,18 +130,18 @@ void controllerLeePayloadInit(controllerLeePayload_t* self)
   init_butterworth_2_low_pass(&filter_tau_rpm[2], 1 / (2 * M_PI_F * cutoff_z), 1.0 / ATTITUDE_RATE, 0.0f);
   init_butterworth_2_low_pass(&filter_tau_imu[2], 1 / (2 * M_PI_F * cutoff_z), 1.0 / ATTITUDE_RATE, 0.0f);
 
-  const float cutoff_payload = 75; // Hz
+  const float cutoff_payload = 30; // Hz
 	for (int8_t i = 0; i < 3; i++) {
 		init_butterworth_2_low_pass(&filter_f_payload_rpm[i], 1 / (2 * M_PI_F * cutoff_payload), 1.0 / ATTITUDE_RATE, 0.0f);
 		init_butterworth_2_low_pass(&filter_f_payload_imu[i], 1 / (2 * M_PI_F * cutoff_payload), 1.0 / ATTITUDE_RATE, 0.0f);
   }
 
-  const float cutoff_qidot = 100; // Hz
+  const float cutoff_qidot = 30; // Hz
 	for (int8_t i = 0; i < 3; i++) {
 		init_butterworth_2_low_pass(&filter_qidot[i], 1 / (2 * M_PI_F * cutoff_qidot), 1.0 / ATTITUDE_RATE, 0.0f);
   }
 
-  const float cutoff_cable = 100; // Hz
+  const float cutoff_cable = 25; // Hz
 	for (int8_t i = 0; i < 3; i++) {
 		init_butterworth_2_low_pass(&filter_f_cable_rpm[i], 1 / (2 * M_PI_F * cutoff_cable), 1.0 / ATTITUDE_RATE, 0.0f);
 		init_butterworth_2_low_pass(&filter_omega_c_dot[i], 1 / (2 * M_PI_F * cutoff_cable), 1.0 / ATTITUDE_RATE, 0.0f);
@@ -265,8 +265,8 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     //directional unit vector qi and its derivative qidot from UAV to payload
     self->qi = vnormalize(vsub(plPos, statePos));
     self->qidot = vdiv(vsub(plVel, stateVel),l);
-    update_butterworth_2_low_pass_vec(filter_qidot, self->qidot);
-    self->qidot = get_butterworth_2_low_pass_vec(filter_qidot);
+    // update_butterworth_2_low_pass_vec(filter_qidot, self->qidot);
+    // self->qidot = get_butterworth_2_low_pass_vec(filter_qidot);
     self->omega_c = vcross(self->qi, self->qidot); // cable angular velocity
     
     struct vec a_indi = vzero(); // NOT USED
@@ -311,7 +311,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       uint64_t timestamp = usecTimestamp();
       float dt = (timestamp - self->timestamp_omega_c_prev) / 1e6;
       struct vec omega_c_dot_unfiltered = vdiv(vsub(self->omega_c, self->omega_c_prev), dt);
-      omega_c_dot_unfiltered = vclampnorm(omega_c_dot_unfiltered, 2.0); // rescale to avoid weird outliers
+      // omega_c_dot_unfiltered = vclampnorm(omega_c_dot_unfiltered, 2.0); // rescale to avoid weird outliers
 
       update_butterworth_2_low_pass_vec(filter_omega_c_dot, omega_c_dot_unfiltered);
       struct vec omega_c_dot_filtered = get_butterworth_2_low_pass_vec(filter_omega_c_dot);
@@ -319,9 +319,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       self->f_cable_imu = vscl(self->mass*l, omega_c_dot_filtered);
       struct mat33 skewqi = mcrossmat(self->qi); // skew symmetric matrix of qi
 
-      struct vec term1 = vscl(self->mass, mvmul(skewqi, vadd(self->f_payload_rpm, gravity_comp)));
-      struct vec term2 = mvmul(skewqi, vscl(f_rpm, mvmul(R, z)));
-      self->f_cable_rpm = vsub(term1, term2);
+      self->f_cable_rpm = vneg(vcross(self->qi, vscl(f_rpm, mvmul(R, z))));
       update_butterworth_2_low_pass_vec(filter_f_cable_rpm, self->f_cable_rpm);
       self->f_cable_imu_filtered = self->f_cable_imu;
       self->f_cable_rpm_filtered = get_butterworth_2_low_pass_vec(filter_f_cable_rpm);
@@ -389,7 +387,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     f_cable_indi = vzero(); // disable cable INDI for now
     struct vec u_perpind = 
     vsub( 
-      vsub(
+      vsub( 
           vscl(self->mass*l, 
             mvmul(skewqi,
               vadd4(
@@ -401,8 +399,8 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
             )
           ),
           vscl(self->mass, mvmul(skewqi2, vdiv(self->desVirtInp, self->mp)))
-        ),
-        f_cable_indi
+          ),
+          f_cable_indi
       );
     struct vec u = vadd(u_parallel, u_perpind); // total desired force by the UAV on the cable
     //------------------------------------------------------------------------------------------//
