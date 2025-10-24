@@ -81,7 +81,6 @@ typedef struct controllerLeePayload_s {
 
     // Payload and Cable controller components (also used for logging)    
     struct vec F_d; // desired payload force
-    struct vec desVirtInp; // desired cable force
     
     struct vec qi; // cable direction
     struct vec qidot;  //  cable direction derivative
