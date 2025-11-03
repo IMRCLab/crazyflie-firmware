@@ -18,7 +18,7 @@
 
 static controllerLeePayload_t g_self = {
   .mass = 0.0381,
-  .mp   = 0.0055,
+  .mp   = 0.005,
   // Inertia matrix (diagonal matrix), see
   // System Identification of the Crazyflie 2.0 Nano Quadrocopter
   // BA theses, Julian Foerster, ETHZ
@@ -26,24 +26,24 @@ static controllerLeePayload_t g_self = {
   .J = {16.571710e-6, 16.655602e-6, 29.261652e-6}, // kg m^2
 
   // Payload PID
-  .Kpos_P = {6.0, 6.0, 6.0}, // Kp in paper
+  .Kpos_P = {9.0, 9.0, 9.0}, // Kp in paper
   .Kpos_P_limit = 100,
-  .Kpos_D = {4.0, 4.0, 4.0}, // Kv in paper
+  .Kpos_D = {8.5, 8.5, 8.5}, // Kv in paper
   .Kpos_D_limit = 100,
-  .Kpos_I = {1.0, 1.0, 3.0}, // not in paper
+  .Kpos_I = {1.5, 1.5, 1.5}, // not in paper
   .Kpos_I_limit = 100,
 
   // Cable PD 
-  .K_q = {8.0, 8.0, 8.0}, // cable direction P
+  .K_q = {45.0, 45.0, 45.0}, // cable direction P
   .K_q_limit = 100,
-  .K_w = {7.5, 7.5, 7.5}, // cable angular velocity D
+  .K_w = {20.0, 20.0, 20.0}, // cable angular velocity D
   .K_w_limit = 100,
   .K_q_I = {0.0, 0.0, 0.0}, // cable direction I
 
   // UAV Attitude PID
-  .KR = {0.0085, 0.0085, 0.0085},
-  .Komega = {0.0013, 0.0013, 0.0013},
-  .KI = {0.01, 0.01, 0.01},
+  .KR = {0.0083, 0.0083, 0.0083},
+  .Komega = {0.0014, 0.0014, 0.0014},
+  .KI = {0.009, 0.009, 0.005},
 
   .attachement_points[0].l = 0.5,
   .attachement_points[1].l = 0.5,
@@ -122,13 +122,13 @@ void controllerLeePayloadInit(controllerLeePayload_t* self)
   init_butterworth_2_low_pass(&filter_tau_rpm[2], 1 / (2 * M_PI_F * cutoff_z), 1.0 / ATTITUDE_RATE, 0.0f);
   init_butterworth_2_low_pass(&filter_tau_imu[2], 1 / (2 * M_PI_F * cutoff_z), 1.0 / ATTITUDE_RATE, 0.0f);
 
-  const float cutoff_payload = 30; // Hz
+  const float cutoff_payload = 70; // Hz
 	for (int8_t i = 0; i < 3; i++) {
 		init_butterworth_2_low_pass(&filter_f_payload_rpm[i], 1 / (2 * M_PI_F * cutoff_payload), 1.0 / ATTITUDE_RATE, 0.0f);
 		init_butterworth_2_low_pass(&filter_f_payload_imu[i], 1 / (2 * M_PI_F * cutoff_payload), 1.0 / ATTITUDE_RATE, 0.0f);
   }
 
-  const float cutoff_cable = 5; // Hz
+  const float cutoff_cable = 70; // Hz
 	for (int8_t i = 0; i < 3; i++) {
 		init_butterworth_2_low_pass(&filter_f_cable_rpm[i], 1 / (2 * M_PI_F * cutoff_cable), 1.0 / ATTITUDE_RATE, 0.0f);
 		init_butterworth_2_low_pass(&filter_f_cable_imu[i], 1 / (2 * M_PI_F * cutoff_cable), 1.0 / ATTITUDE_RATE, 0.0f);
@@ -272,6 +272,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       struct mat33 qiqiT = vecmult(self->qi);
       struct vec u_parallel = mvmul(qiqiT, vscl(f_rpm, mvmul(R, z)));
       struct vec a_payload = vdiv(vsub( vsub( u_parallel, vscl(self->mass*l*vmag2(self->omega_c), self->qi)) , vscl(mt,gravity_comp) ),mt);
+      // residuals on the uav acceleration [m/s^2]
       self->a_rpm = vsub(vsub(vscl(f_rpm / self->mass, mvmul(R, z)), gravity_comp), vscl(self->mp / self->mass, vadd(a_payload, gravity_comp)));
       update_butterworth_2_low_pass_vec(filter_acc_rpm, self->a_rpm);
       
@@ -285,6 +286,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       self->a_imu_filtered = get_butterworth_2_low_pass_vec(filter_acc_imu);
       a_indi = vsub(self->a_imu_filtered, self->a_rpm_filtered); // CURRENTLY NOT USED
 
+      // residuals on the payload force [N]
       self->f_payload_rpm = vsub( vsub( u_parallel, vscl(self->mass*l*vmag2(self->omega_c), self->qi)) , vscl(mt,gravity_comp) );
       self->f_payload_imu = vscl(mt, plAcc);
 
@@ -294,7 +296,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       self->f_payload_rpm_filtered = get_butterworth_2_low_pass_vec(filter_f_payload_rpm);
       self->f_payload_imu_filtered = get_butterworth_2_low_pass_vec(filter_f_payload_imu);
 
-      if (self->indi_payload & 0) {
+      if (self->indi_payload & 1) {
         f_indi_payload = vsub(self->f_payload_imu_filtered, self->f_payload_rpm_filtered);
       } 
  
@@ -309,6 +311,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       struct mat33 skewqi2 = mmul(skewqi,skewqi); // skewqi squared
 
       struct vec u_rpm_perp = vneg(mvmul(skewqi2, vscl(f_rpm, mvmul(R, z))));
+      // residuals on the cable force [N]
       self->f_cable_rpm = vneg(mvmul(skewqi, u_rpm_perp));
       update_butterworth_2_low_pass_vec(filter_f_cable_rpm, self->f_cable_rpm);
       self->f_cable_imu_filtered = get_butterworth_2_low_pass_vec(filter_f_cable_imu);
