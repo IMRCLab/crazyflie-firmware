@@ -369,11 +369,11 @@ static void stabilizerTask(void* param)
   STATIC_MEM_TASK_CREATE(rateSupervisorTask, rateSupervisorTask, RATE_SUPERVISOR_TASK_NAME, NULL, RATE_SUPERVISOR_TASK_PRI);
 
   for (int8_t i = 0; i < 3; i++) {
-      const float cutoff_vel = 100; // Hz
+      const float cutoff_vel = 80; // Hz
       init_butterworth_2_low_pass(&filter_payload_vel[i], 1 / (2 * M_PI_F * cutoff_vel), 1.0 / ATTITUDE_RATE, 0.0f); // Init vel filter
   }
   for (int8_t i = 0; i < 3; i++) {
-    const float cutoff_acc = 30; // Hz
+    const float cutoff_acc = 75; // Hz
     init_butterworth_2_low_pass(&filter_payload_acc[i], 1 / (2 * M_PI_F * cutoff_acc), 1.0 / ATTITUDE_RATE, 0.0f); // Init acc filter
   }
 
