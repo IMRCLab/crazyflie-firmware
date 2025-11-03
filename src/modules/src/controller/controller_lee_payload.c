@@ -40,14 +40,6 @@ static controllerLeePayload_t g_self = {
   .K_w_limit = 100,
   .K_q_I = {0.0, 0.0, 0.0}, // cable direction I
 
-  // UAV Position PID Gains
-  .Kpos_UAV_P = {0.0, 0.0, 0.0}, // UAV position Kp
-  .Kpos_UAV_P_limit = 100,
-  .Kpos_UAV_D = {0.0, 0.0, 0.0}, // UAV position Kv
-  .Kpos_UAV_D_limit = 100,
-  .Kpos_UAV_I = {0.0, 0.0, 0.0}, // UAV position Ki
-  .Kpos_UAV_I_limit = 100,
-
   // UAV Attitude PID
   .KR = {0.0085, 0.0085, 0.0085},
   .Komega = {0.0013, 0.0013, 0.0013},
@@ -59,7 +51,10 @@ static controllerLeePayload_t g_self = {
 
   // INDI
   .indi = 0,
-  .use_flat_output = 0,
+  .use_flat_output = 1,
+  .indi_cable = 0,
+  .indi_payload = 0,
+  .indi_uav = 0,
 
 };
 
@@ -77,8 +72,6 @@ static Butterworth2LowPass filter_tau_imu[3];
 
 static Butterworth2LowPass filter_f_payload_rpm[3];
 static Butterworth2LowPass filter_f_payload_imu[3];
-
-static Butterworth2LowPass filter_qidot[3];
 
 static Butterworth2LowPass filter_f_cable_rpm[3];
 static Butterworth2LowPass filter_f_cable_imu[3];
@@ -98,7 +91,6 @@ void controllerLeePayloadReset(controllerLeePayload_t* self)
 {
   self->i_error_pos = vzero();
   self->i_error_q = vzero();
-  self->i_error_pos_uav = vzero();
   self->i_error_att_uav = vzero();
 }
 
@@ -136,12 +128,7 @@ void controllerLeePayloadInit(controllerLeePayload_t* self)
 		init_butterworth_2_low_pass(&filter_f_payload_imu[i], 1 / (2 * M_PI_F * cutoff_payload), 1.0 / ATTITUDE_RATE, 0.0f);
   }
 
-  const float cutoff_qidot = 30; // Hz
-	for (int8_t i = 0; i < 3; i++) {
-		init_butterworth_2_low_pass(&filter_qidot[i], 1 / (2 * M_PI_F * cutoff_qidot), 1.0 / ATTITUDE_RATE, 0.0f);
-  }
-
-  const float cutoff_cable = 10; // Hz
+  const float cutoff_cable = 5; // Hz
 	for (int8_t i = 0; i < 3; i++) {
 		init_butterworth_2_low_pass(&filter_f_cable_rpm[i], 1 / (2 * M_PI_F * cutoff_cable), 1.0 / ATTITUDE_RATE, 0.0f);
 		init_butterworth_2_low_pass(&filter_f_cable_imu[i], 1 / (2 * M_PI_F * cutoff_cable), 1.0 / ATTITUDE_RATE, 0.0f);
@@ -269,9 +256,9 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     self->qidot = vdiv(vsub(plVel, stateVel),l);
     self->omega_c = vcross(self->qi, self->qidot); // cable angular velocity
     
-    struct vec a_indi = vzero(); // NOT USED
+    struct vec a_indi = vzero(); // collective INDI acceleration correction
     struct vec f_indi_payload = vzero(); // used in u_parallel
-    struct vec f_indi_cable = vzero(); // used in u_perpendicular: CURRENTLY DISABLED
+    struct vec f_indi_cable = vzero(); // used in u_perpendicular
     self->a_rpm_filtered = vzero();
     self->a_imu_filtered = vzero();
     self->f_payload_rpm_filtered = vzero();
@@ -282,7 +269,10 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     if ((self->indi & 1) && rpm_deck_available) {
       float f_rpm = t1 + t2 + t3 + t4;
       // UAV INDI 
-      self->a_rpm = vsub(vsub(vscl(f_rpm / self->mass, mvmul(R, z)), gravity_comp), vscl(self->mp / self->mass, vadd(plAcc, gravity_comp)));
+      struct mat33 qiqiT = vecmult(self->qi);
+      struct vec u_parallel = mvmul(qiqiT, vscl(f_rpm, mvmul(R, z)));
+      struct vec a_payload = vdiv(vsub( vsub( u_parallel, vscl(self->mass*l*vmag2(self->omega_c), self->qi)) , vscl(mt,gravity_comp) ),mt);
+      self->a_rpm = vsub(vsub(vscl(f_rpm / self->mass, mvmul(R, z)), gravity_comp), vscl(self->mp / self->mass, vadd(a_payload, gravity_comp)));
       update_butterworth_2_low_pass_vec(filter_acc_rpm, self->a_rpm);
       
       self->a_imu = mkvec(sensors->accNoLpf.x, sensors->accNoLpf.y, sensors->accNoLpf.z);
@@ -295,8 +285,6 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       self->a_imu_filtered = get_butterworth_2_low_pass_vec(filter_acc_imu);
       a_indi = vsub(self->a_imu_filtered, self->a_rpm_filtered); // CURRENTLY NOT USED
 
-      struct mat33 qiqiT = vecmult(self->qi);
-      struct vec u_parallel = mvmul(qiqiT, vscl(f_rpm, mvmul(R, z)));
       self->f_payload_rpm = vsub( vsub( u_parallel, vscl(self->mass*l*vmag2(self->omega_c), self->qi)) , vscl(mt,gravity_comp) );
       self->f_payload_imu = vscl(mt, plAcc);
 
@@ -305,8 +293,11 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
 
       self->f_payload_rpm_filtered = get_butterworth_2_low_pass_vec(filter_f_payload_rpm);
       self->f_payload_imu_filtered = get_butterworth_2_low_pass_vec(filter_f_payload_imu);
-      f_indi_payload = vsub(self->f_payload_imu_filtered, self->f_payload_rpm_filtered);
 
+      if (self->indi_payload & 0) {
+        f_indi_payload = vsub(self->f_payload_imu_filtered, self->f_payload_rpm_filtered);
+      } 
+ 
       uint64_t timestamp = usecTimestamp();
       float dt = (timestamp - self->timestamp_omega_c_prev) / 1e6;
       struct vec omega_c_dot_unfiltered = vdiv(vsub(self->omega_c, self->omega_c_prev), dt);
@@ -315,14 +306,17 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
 
       update_butterworth_2_low_pass_vec(filter_f_cable_imu, self->f_cable_imu);
       struct mat33 skewqi = mcrossmat(self->qi); // skew symmetric matrix of qi
-        struct mat33 skewqi2 = mmul(skewqi,skewqi); // skewqi squared
+      struct mat33 skewqi2 = mmul(skewqi,skewqi); // skewqi squared
 
       struct vec u_rpm_perp = vneg(mvmul(skewqi2, vscl(f_rpm, mvmul(R, z))));
       self->f_cable_rpm = vneg(mvmul(skewqi, u_rpm_perp));
       update_butterworth_2_low_pass_vec(filter_f_cable_rpm, self->f_cable_rpm);
       self->f_cable_imu_filtered = get_butterworth_2_low_pass_vec(filter_f_cable_imu);
       self->f_cable_rpm_filtered = get_butterworth_2_low_pass_vec(filter_f_cable_rpm);
-      f_indi_cable = vsub(self->f_cable_imu_filtered, self->f_cable_rpm_filtered);
+
+      if (self->indi_cable & 1) {
+        f_indi_cable = vsub(self->f_cable_imu_filtered, self->f_cable_rpm_filtered);
+      } 
       self->omega_c_prev = self->omega_c;
       self->timestamp_omega_c_prev = timestamp;
 
@@ -333,8 +327,7 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
       // }
     }
     // payload desired force
-    f_indi_payload = vzero(); // disable payload INDI for now
-    self->F_d = vscl(mt, 
+     self->F_d = vscl(mt, 
       vadd5(
       plAcc_d, gravity_comp,
       veltmul(self->Kpos_P, plpos_e),
@@ -376,22 +369,27 @@ void controllerLeePayload(controllerLeePayload_t* self, control_t *control, cons
     // cable error terms
     struct vec eq  = vclampscl(vcross(self->qdi, self->qi), -self->K_q_limit, self->K_q_limit);
     struct vec ew  = vclampscl(vadd(self->omega_c, mvmul(skewqi2, self->omega_cd)), -self->K_w_limit, self->K_w_limit);
+    self->qdi = vneg(vnormalize(vadd(plAcc_d, gravity_comp))); // desired cable direction
     
-    f_indi_cable = vzero(); // disable cable INDI for now
     struct vec u_perpind = 
     vsub( 
       vscl(self->mass*l, 
         mvmul(skewqi,
-          vadd3(
+          vadd4(
             vneg(veltmul(self->K_q, eq)),
             vneg(veltmul(self->K_w, ew)),
-            vneg(vscl(vdot(self->qi, self->omega_cd), self->qidot))
+            vneg(vscl(vdot(self->qi, self->omega_cd), self->qidot)),
+            vneg(mvmul(skewqi2, self->omega_cd_dot))
           )
         )
       ),          
       f_indi_cable
     );
-    struct vec u = vadd(u_parallel, u_perpind); // total desired force by the UAV on the cable
+    struct vec u_indi = vzero();
+    if (self->indi_uav & 1) {
+      u_indi = vscl(self->mass, a_indi);
+    }
+      struct vec u = vsub(vadd(u_parallel, u_perpind), u_indi); // total desired force by the UAV on the cable
     //------------------------------------------------------------------------------------------//
 
     // UAV Lee controller
@@ -632,22 +630,6 @@ PARAM_ADD(PARAM_FLOAT, KqIx, &g_self.K_q_I.x)
 PARAM_ADD(PARAM_FLOAT, KqIy, &g_self.K_q_I.y)
 PARAM_ADD(PARAM_FLOAT, KqIz, &g_self.K_q_I.z)
 
-// UAV Position P
-PARAM_ADD(PARAM_FLOAT, Kpos_UAV_Px, &g_self.Kpos_UAV_P.x)
-PARAM_ADD(PARAM_FLOAT, Kpos_UAV_Py, &g_self.Kpos_UAV_P.y)
-PARAM_ADD(PARAM_FLOAT, Kpos_UAV_Pz, &g_self.Kpos_UAV_P.z)
-PARAM_ADD(PARAM_FLOAT, Kpos_UAV_P_limit, &g_self.Kpos_UAV_P_limit)
-// UAV Position D
-PARAM_ADD(PARAM_FLOAT, Kpos_UAV_Dx, &g_self.Kpos_UAV_D.x)
-PARAM_ADD(PARAM_FLOAT, Kpos_UAV_Dy, &g_self.Kpos_UAV_D.y)
-PARAM_ADD(PARAM_FLOAT, Kpos_UAV_Dz, &g_self.Kpos_UAV_D.z)
-PARAM_ADD(PARAM_FLOAT, Kpos_UAV_D_limit, &g_self.Kpos_UAV_D_limit)
-// UAV Position I
-PARAM_ADD(PARAM_FLOAT, Kpos_UAV_Ix, &g_self.Kpos_UAV_I.x)
-PARAM_ADD(PARAM_FLOAT, Kpos_UAV_Iy, &g_self.Kpos_UAV_I.y)
-PARAM_ADD(PARAM_FLOAT, Kpos_UAV_Iz, &g_self.Kpos_UAV_I.z)
-PARAM_ADD(PARAM_FLOAT, Kpos_UAV_I_limit, &g_self.Kpos_UAV_I_limit)
-
 
 // UAV Attitude P
 PARAM_ADD(PARAM_FLOAT, KRx, &g_self.KR.x)
@@ -672,6 +654,9 @@ PARAM_ADD(PARAM_FLOAT, massP, &g_self.mp)
 
 // INDI status 
 PARAM_ADD(PARAM_UINT8, indi, &g_self.indi)
+PARAM_ADD(PARAM_UINT8, indi_cable, &g_self.indi_cable)
+PARAM_ADD(PARAM_UINT8, indi_payload, &g_self.indi_payload)
+PARAM_ADD(PARAM_UINT8, indi_uav, &g_self.indi_uav)
 PARAM_ADD(PARAM_UINT8, use_flat_output, &g_self.use_flat_output)
 
 // Attachement points and cable lengths

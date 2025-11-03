@@ -60,16 +60,6 @@ typedef struct controllerLeePayload_s {
     struct vec i_error_q;  // integral of cable direction error
     uint8_t use_flat_output; // use flat output for payload and cable control
 
-    // UAV Position PID Gains
-    struct vec Kpos_UAV_P; // UAV position Kp
-    float Kpos_UAV_P_limit;
-    struct vec Kpos_UAV_D; // UAV position Kv
-    float Kpos_UAV_D_limit;
-    struct vec Kpos_UAV_I; // UAV position Ki
-    float Kpos_UAV_I_limit;
-    struct vec i_error_pos_uav; // integral of UAV position error
-
-    
     // UAV Attitude PID
     struct vec KR; // UAV rotation KR
     float KR_limit;
@@ -96,6 +86,9 @@ typedef struct controllerLeePayload_s {
 
     // INDI
     uint8_t indi;
+    uint8_t indi_cable;
+    uint8_t indi_payload;
+    uint8_t indi_uav;
     struct vec omega_prev;
     uint64_t timestamp_prev;
     struct vec omega_c_prev; // previous cable angular velocity
