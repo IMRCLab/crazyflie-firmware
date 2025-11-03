@@ -60,16 +60,6 @@ typedef struct controllerLeePayload_s {
     struct vec i_error_q;  // integral of cable direction error
     uint8_t use_flat_output; // use flat output for payload and cable control
 
-    // UAV Position PID Gains
-    struct vec Kpos_UAV_P; // UAV position Kp
-    float Kpos_UAV_P_limit;
-    struct vec Kpos_UAV_D; // UAV position Kv
-    float Kpos_UAV_D_limit;
-    struct vec Kpos_UAV_I; // UAV position Ki
-    float Kpos_UAV_I_limit;
-    struct vec i_error_pos_uav; // integral of UAV position error
-
-    
     // UAV Attitude PID
     struct vec KR; // UAV rotation KR
     float KR_limit;
@@ -81,7 +71,6 @@ typedef struct controllerLeePayload_s {
 
     // Payload and Cable controller components (also used for logging)    
     struct vec F_d; // desired payload force
-    struct vec desVirtInp; // desired cable force
     
     struct vec qi; // cable direction
     struct vec qidot;  //  cable direction derivative
@@ -97,14 +86,27 @@ typedef struct controllerLeePayload_s {
 
     // INDI
     uint8_t indi;
+    uint8_t indi_cable;
+    uint8_t indi_payload;
+    uint8_t indi_uav;
     struct vec omega_prev;
     uint64_t timestamp_prev;
+    struct vec omega_c_prev; // previous cable angular velocity
+    uint64_t timestamp_omega_c_prev; // previous timestamp for cable angular velocity
 
     struct vec tau_rpm;
     struct vec tau_rpm_filtered;
     struct vec tau_imu_filtered;
     struct vec tau_imu;
 
+    struct vec f_payload_rpm;
+    struct vec f_payload_rpm_filtered;
+    struct vec f_payload_imu;
+    struct vec f_payload_imu_filtered;
+    struct vec f_cable_rpm;
+    struct vec f_cable_rpm_filtered;
+    struct vec f_cable_imu;
+    struct vec f_cable_imu_filtered;
     struct vec a_rpm;
     struct vec a_rpm_filtered;
     struct vec a_imu;
