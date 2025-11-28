@@ -51,6 +51,9 @@ CDC 2010
 #include "usec_time.h"
 #include "debug.h"
 
+#include "nn.h"
+float nn_inference_time;
+
 
 static controllerLee_t g_self = {
   .mass = 0.034,
@@ -76,6 +79,7 @@ static controllerLee_t g_self = {
 
   // INDI
   .indi = 0,
+  .use_nn = 0,
 };
 
 
@@ -147,6 +151,11 @@ void controllerLeeInit(controllerLee_t* self)
     DEBUG_PRINT("Using INDI (gyro)\n");
   } else {
     DEBUG_PRINT("No INDI\n");
+  }
+  if (self->use_nn) {
+    DEBUG_PRINT("Using Neural Network\n");
+  } else {
+    DEBUG_PRINT("No NN\n");
   }
 
   self->timestamp_prev = usecTimestamp();
@@ -254,13 +263,64 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
       veltmul(self->Kpos_D, vel_e),
       veltmul(self->Kpos_P, pos_e),
       veltmul(self->Kpos_I, self->i_error_pos));
+    
+    // Neural network
+    struct vec a_nn = vzero();
+    if (self->use_nn)
+    {
+      float start_time = usecTimestamp();
 
+      // First two columns of the rotation matrix
+      self->input_vec[0] = R.m[0][0];
+      self->input_vec[1] = R.m[0][1];
+      self->input_vec[2] = R.m[1][0];
+      self->input_vec[3] = R.m[1][1];
+      self->input_vec[4] = R.m[2][0];
+      self->input_vec[5] = R.m[2][1];
+      // State estimate acceleration
+      self->input_vec[6] = state->acc.x * 9.81f;
+      self->input_vec[7] = state->acc.y * 9.81f;
+      self->input_vec[8] = (state->acc.z + 1.f) * 9.81f;
+      // State estimate velocities
+      self->input_vec[9] = state->velocity.x;
+      self->input_vec[10] = state->velocity.y;
+      self->input_vec[11] = state->velocity.z;
+      // Gyroscope sensor readings
+      self->input_vec[12] = radians(sensors->gyro.x);
+      self->input_vec[13] = radians(sensors->gyro.y);
+      self->input_vec[14] = radians(sensors->gyro.z);
+      // Motor power
+      self->input_vec[15] = motorsGetRatio(0);
+      self->input_vec[16] = motorsGetRatio(1);
+      self->input_vec[17] = motorsGetRatio(2);
+      self->input_vec[18] = motorsGetRatio(3);
+
+      const float *model_output = nn_forward(self->input_vec);
+      self->nn_output[0] = model_output[0];
+      self->nn_output[1] = model_output[1];
+      self->nn_output[2] = model_output[2];
+      self->nn_output[3] = model_output[3];
+      self->nn_output[4] = model_output[4];
+      self->nn_output[5] = model_output[5];
+    
+      float end_time = usecTimestamp();
+      float elapsed_time = end_time - start_time;
+      nn_inference_time = elapsed_time; // Microseconds
+
+      if (self->use_nn & 1) {
+        a_nn.x = self->nn_output[0];
+        a_nn.y = self->nn_output[1];
+      }
+      if (self->use_nn & 2) {
+        a_nn.z = self->nn_output[2];
+      }
+    }
     // INDI
     struct vec a_indi = vzero();
     if ((self->indi & 1) && rpm_deck_available) {
 
       float f_rpm = t1 + t2 + t3 + t4;
-      self->a_rpm = vsub(vscl(f_rpm / self->mass, mvmul(R, z)), mkvec(0.0, 0.0, 9.81f));
+      self->a_rpm = vadd(vsub(vscl(f_rpm / self->mass, mvmul(R, z)), mkvec(0.0, 0.0, 9.81f)), a_nn);
       self->a_rpm = vclampnorm(self->a_rpm, 10);
 
       update_butterworth_2_low_pass_vec(filter_acc_rpm, self->a_rpm);
@@ -280,7 +340,7 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
       //   DEBUG_PRINT("INDI p %f %f %f, %f %f %f\n", (double)self->a_rpm_filtered.x, (double)self->a_rpm_filtered.y, (double)self->a_rpm_filtered.z, (double)self->a_imu_filtered.x, (double)self->a_imu_filtered.y, (double)self->a_imu_filtered.z);
       // }
     }
-    struct vec F_d = vsub(a_d, a_indi);
+    struct vec F_d = vsub2(a_d, a_indi, a_nn);
     control->thrustSi = self->mass*vdot(F_d, mvmul(R, z));
     self->thrustSi = control->thrustSi;
     // Reset the accumulated error while on the ground
@@ -389,6 +449,12 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     vcross(self->omega, veltmul(self->J, self->omega)),
     vneg(veltmul(self->J, vsub(mvmul(mcrossmat(self->omega), self->omega_r), mvmul(mmul(mtranspose(R), self->R_des), self->omega_des_dot)))));
 
+  struct vec u_nn = vzero();
+  if (self->use_nn & 4) {
+    u_nn.x = self->nn_output[3];
+    u_nn.y = self->nn_output[4];
+    u_nn.z = self->nn_output[5];
+  }
 
   struct vec indi_moments = vzero();
   if ((self->indi & 2) && rpm_deck_available) {
@@ -399,6 +465,7 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
       -arm * t1 + arm * t2 + arm * t3 - arm * t4,
       -t2t * t1 + t2t * t2 - t2t * t3 + t2t * t4
     );
+    self->tau_rpm = vadd(self->tau_rpm, u_nn);
     self->tau_rpm = vclampnorm(self->tau_rpm, 0.006);
 
     update_butterworth_2_low_pass_vec(filter_tau_rpm, self->tau_rpm);
@@ -427,7 +494,7 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     //   DEBUG_PRINT("INDI a %f %f %f, %f %f %f\n", (double)self->tau_rpm_filtered.x, (double)self->tau_rpm_filtered.y, (double)self->tau_rpm_filtered.z, (double)self->tau_imu_filtered.x, (double)self->tau_imu_filtered.y, (double)self->tau_imu_filtered.z);
     // }
   }
-  self->u = vsub(self->u, indi_moments);
+  self->u = vsub2(self->u, indi_moments, u_nn);
   control->controlMode = controlModeForceTorque;
   control->torque[0] = self->u.x;
   control->torque[1] = self->u.y;
@@ -496,9 +563,42 @@ PARAM_ADD(PARAM_FLOAT, Kpos_I_limit, &g_self.Kpos_I_limit)
 PARAM_ADD(PARAM_FLOAT, mass, &g_self.mass)
 
 PARAM_ADD(PARAM_UINT8, indi, &g_self.indi)
+PARAM_ADD(PARAM_UINT8, use_nn, &g_self.use_nn)
 
 PARAM_GROUP_STOP(ctrlLee)
 
+LOG_GROUP_START(nn_perf)
+LOG_ADD(LOG_FLOAT, inf_tim, &nn_inference_time)
+LOG_GROUP_STOP(nn_perf)
+LOG_GROUP_START(nn_output)
+LOG_ADD(LOG_FLOAT, f_x, &g_self.nn_output[0])
+LOG_ADD(LOG_FLOAT, f_y, &g_self.nn_output[1])
+LOG_ADD(LOG_FLOAT, f_z, &g_self.nn_output[2])
+LOG_ADD(LOG_FLOAT, tau_x, &g_self.nn_output[3])
+LOG_ADD(LOG_FLOAT, tau_y, &g_self.nn_output[4])
+LOG_ADD(LOG_FLOAT, tau_z, &g_self.nn_output[5])
+LOG_GROUP_STOP(nn_output)
+LOG_GROUP_START(nn_input)
+LOG_ADD(LOG_FLOAT, i0, &g_self.input_vec[0])
+LOG_ADD(LOG_FLOAT, i1, &g_self.input_vec[1])
+LOG_ADD(LOG_FLOAT, i2, &g_self.input_vec[2])
+LOG_ADD(LOG_FLOAT, i3, &g_self.input_vec[3])
+LOG_ADD(LOG_FLOAT, i4, &g_self.input_vec[4])
+LOG_ADD(LOG_FLOAT, i5, &g_self.input_vec[5])
+LOG_ADD(LOG_FLOAT, i6, &g_self.input_vec[6])
+LOG_ADD(LOG_FLOAT, i7, &g_self.input_vec[7])
+LOG_ADD(LOG_FLOAT, i8, &g_self.input_vec[8])
+LOG_ADD(LOG_FLOAT, i9, &g_self.input_vec[9])
+LOG_ADD(LOG_FLOAT, i10, &g_self.input_vec[10])
+LOG_ADD(LOG_FLOAT, i11, &g_self.input_vec[11])
+LOG_ADD(LOG_FLOAT, i12, &g_self.input_vec[12])
+LOG_ADD(LOG_FLOAT, i13, &g_self.input_vec[13])
+LOG_ADD(LOG_FLOAT, i14, &g_self.input_vec[14])
+LOG_ADD(LOG_FLOAT, i15, &g_self.input_vec[15])
+LOG_ADD(LOG_FLOAT, i16, &g_self.input_vec[16])
+LOG_ADD(LOG_FLOAT, i17, &g_self.input_vec[17])
+LOG_ADD(LOG_FLOAT, i18, &g_self.input_vec[18])
+LOG_GROUP_STOP(nn_input)
 
 LOG_GROUP_START(ctrlLee)
 
