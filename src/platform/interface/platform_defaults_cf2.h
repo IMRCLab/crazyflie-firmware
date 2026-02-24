@@ -68,6 +68,7 @@
         #define THRUST_MIN      0.012817578393224994f  // N (per motor)
         #define THRUST_MAX      0.12f                  // N (per motor)
         #define THRUST2TORQUE   0.0069928948992470565f // m
+        #define MOTORRPM2FORCE  1.4346289961914151e-08f // force_in_newton = MOTORRPM2FORCE * (motor rpm in rad/s)^2
     #elif defined(CONFIG_CRAZYFLIE_THRUST_UPGRADE_KIT) // Thrust upgrade kit
         #define VMOTOR2THRUST0  0.006728127583707208f
         #define VMOTOR2THRUST1  0.01011557616217668f

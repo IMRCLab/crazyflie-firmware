@@ -88,8 +88,6 @@ static Butterworth2LowPass filter_acc_imu[3];
 static Butterworth2LowPass filter_tau_rpm[3];
 static Butterworth2LowPass filter_angular_acc[3];
 
-extern float kappa_f[4];
-
 static inline struct vec vclampscl(struct vec value, float min, float max) {
   return mkvec(
     clamp(value.x, min, max),
@@ -185,10 +183,10 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     uint16_t rpm3 = logGetUint(logVarRpm3);
     uint16_t rpm4 = logGetUint(logVarRpm4);
 
-    t1 = kappa_f[0] * powf(rpm1, 2);
-    t2 = kappa_f[1] * powf(rpm2, 2);
-    t3 = kappa_f[2] * powf(rpm3, 2);
-    t4 = kappa_f[3] * powf(rpm4, 2);
+    t1 = MOTORRPM2FORCE * powf(rpm1 * 2.0f * M_PI_F / 60.0f, 2);
+    t2 = MOTORRPM2FORCE * powf(rpm2 * 2.0f * M_PI_F / 60.0f, 2);
+    t3 = MOTORRPM2FORCE * powf(rpm3 * 2.0f * M_PI_F / 60.0f, 2);
+    t4 = MOTORRPM2FORCE * powf(rpm4 * 2.0f * M_PI_F / 60.0f, 2);
 
     // DEBUG
     if (tick % 500 == 0) {
