@@ -85,6 +85,13 @@ config DECK_BIGQUAD_ENABLE_PM
     bool "Enable Bigquad deck PM"
     default n
 
+config DECK_BIGQUAD_ENABLE_CPPM
+    depends on DECK_BIGQUAD
+    bool "Enable Bigquad deck CPPM"
+    default n
+    help
+      This enables external CPPM input.
+
 config DECK_BUZZ
     bool "Support the Buzzer deck"
     default y
@@ -302,6 +309,7 @@ config DECK_LOCO
   config DECK_LOCO_NR_OF_ANCHORS
   int "The number of anchors in use"
   default 8
+  range 4 8
   depends on DECK_LOCO
   help
       The number of anchors in your Loco setup. See documentation on
@@ -374,6 +382,21 @@ config DECK_LOCO_2D_POSITION_HEIGHT
     string "The height (Z) that the tag will be located at"
     depends on DECK_LOCO_2D_POSITION
     default 1.2
+
+choice
+    prompt "SPI clock speed (high speed mode)"
+    depends on DECK_LOCO
+    default DECK_LOCO_SPI_SPEED_21MHZ
+    help
+        SPI clock speed used when communicating with the DW1000 in PLL mode.
+
+    config DECK_LOCO_SPI_SPEED_21MHZ
+        bool "21 MHz"
+
+    config DECK_LOCO_SPI_SPEED_12MHZ
+        bool "11.5 MHz"
+
+endchoice
 
 config DECK_MULTIRANGER
     bool "Support the Multi-ranger deck"
@@ -494,4 +517,18 @@ config DECK_LOADCELL
     default n
     help
         Enables the support for the NAU7802 loadcell.
-      
+  
+config DECK_DECKCTRL_DEVBOARD
+    depends on DECK_BACKEND_DECKCTRL
+    bool "Support for the deckctrl devboard deck"
+    default n
+    help
+        Enables the support for the deckctrl devboard deck.
+        This deck is used for the deckctrl development.
+
+config DECK_COLORLED
+    depends on DECK_BACKEND_DECKCTRL
+    bool "Support for Color LED deck"
+    default y
+    help
+        Enables the support for Color LED deck.

@@ -207,7 +207,10 @@ bool stabilizerTest(void)
 
 static void batteryCompensation(const motors_thrust_uncapped_t* motorThrustUncapped, motors_thrust_uncapped_t* motorThrustBatCompUncapped)
 {
-  float supplyVoltage = pmGetBatteryVoltage();
+  // Low pass on the BatteryVoltage
+  float b = 0.01f; // 0.2f = Convergence (95%) in ~10 steps = ~20ms
+  static float supplyVoltage = 4.2;
+  supplyVoltage = supplyVoltage + b*(pmGetBatteryVoltage() - supplyVoltage);
 
   for (int motor = 0; motor < STABILIZER_NR_OF_MOTORS; motor++)
   {
@@ -368,9 +371,10 @@ static void stabilizerTask(void* param)
       calcSensorToOutputLatency(&sensorData);
       stabilizerStep++;
       STATS_CNT_RATE_EVENT(&stabilizerRate);
-
-      xSemaphoreGive(xRateSupervisorSemaphore);
     }
+
+    xSemaphoreGive(xRateSupervisorSemaphore);
+
 #ifdef CONFIG_MOTORS_ESC_PROTOCOL_DSHOT
     motorsBurstDshot();
 #endif
@@ -392,6 +396,7 @@ PARAM_ADD_CORE(PARAM_UINT8, estimator, &estimatorType)
  * @brief Controller type Auto select(0), PID(1), Mellinger(2), INDI(3), Brescianini(4), Lee(5) (Default: 0)
  */
 PARAM_ADD_CORE(PARAM_UINT8, controller, &controllerType)
+
 PARAM_GROUP_STOP(stabilizer)
 
 

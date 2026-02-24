@@ -47,14 +47,6 @@
 #endif
 
 static uint32_t idleThrust = DEFAULT_IDLE_THRUST;
-static float armLength = ARM_LENGTH; // m
-static float thrustToTorque = 0.005964552f;
-
-// thrust = a * pwm^2 + b * pwm
-//    where PWM is normalized (range 0...1)
-//          thrust is in Newtons (per rotor)
-static float pwmToThrustA = 0.091492681f;
-static float pwmToThrustB = 0.067673604f;
 
 // pwm_normalized = rpm2pwmA + b * rpm
 static float rpm2pwmA = -0.12128823778162669f;
@@ -108,11 +100,13 @@ static void powerDistributionLegacy(const control_t *control, motors_thrust_unca
 }
 
 static void powerDistributionForceTorque(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
-  const float arm = 0.707106781f * armLength;
+  static float motorForces[STABILIZER_NR_OF_MOTORS];
+
+  const float arm = 0.707106781f * ARM_LENGTH;
   const float rollPart = 0.25f / arm * control->torqueX;
   const float pitchPart = 0.25f / arm * control->torqueY;
   const float thrustPart = 0.25f * control->thrustSi; // N (per rotor)
-  const float yawPart = 0.25f * control->torqueZ / thrustToTorque;
+  const float yawPart = 0.25f * control->torqueZ / THRUST2TORQUE;
 
   motorForces[0] = thrustPart - rollPart - pitchPart - yawPart;
   motorForces[1] = thrustPart - rollPart + pitchPart + yawPart;
@@ -130,11 +124,49 @@ static void powerDistributionForceTorque(const control_t *control, motors_thrust
     float motor_pwm = rpm2pwmA + rpm2pwmB * motor_rpm;
 
     motorThrustUncapped->list[motorIndex] = motor_pwm * UINT16_MAX;
+    //motorThrustUncapped->list[motorIndex] = motorForce / THRUST_MAX * UINT16_MAX;
   }
 }
 
+/**
+ * @brief Allows for direct control of motor power with clipping
+ *
+ * This function applies clipping to the motor values, which is different to
+ * the "capping" behaviour found in powerDistributionForceTorque() - which
+ * instead prioritizes stability rather than thrust.
+ */
 static void powerDistributionForce(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
-  // Not implemented yet
+  for (int i = 0; i < STABILIZER_NR_OF_MOTORS; i++) {
+    float f = control->normalizedForces[i];
+
+    if (f < 0.0f) {
+      f = 0.0f;
+    }
+
+    if (f > 1.0f) {
+      f = 1.0f;
+    }
+
+    motorThrustUncapped->list[i] = f * UINT16_MAX;
+  }
+}
+
+static void powerDistributionPWM(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
+  // Direct PWM control - bypass all mixing, just set motor PWM directly
+  for (int motorIndex = 0; motorIndex < STABILIZER_NR_OF_MOTORS; motorIndex++) {
+    float normalizedPWM = control->normalizedForces[motorIndex];
+    
+    // Safety clamp to [0..1]
+    if (normalizedPWM < 0.0f) {
+      normalizedPWM = 0.0f;
+    }
+    if (normalizedPWM > 1.0f) {
+      normalizedPWM = 1.0f;
+    }
+    
+    // Convert normalized [0..1] to PWM [0..UINT16_MAX]
+    motorThrustUncapped->list[motorIndex] = (uint16_t)(normalizedPWM * UINT16_MAX);
+  }
 }
 
 void powerDistribution(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped)
@@ -148,6 +180,9 @@ void powerDistribution(const control_t *control, motors_thrust_uncapped_t* motor
       break;
     case controlModeForce:
       powerDistributionForce(control, motorThrustUncapped);
+      break;
+    case controlModePWM:
+      powerDistributionPWM(control, motorThrustUncapped);
       break;
     default:
       // Nothing here
@@ -197,9 +232,7 @@ uint32_t powerDistributionGetIdleThrust()
 }
 
 float powerDistributionGetMaxThrust() {
-  // max thrust per rotor occurs if normalized PWM is 1
-  // pwmToThrustA * pwm * pwm + pwmToThrustB * pwm = pwmToThrustA + pwmToThrustB
-  return STABILIZER_NR_OF_MOTORS * (pwmToThrustA + pwmToThrustB);
+  return STABILIZER_NR_OF_MOTORS * THRUST_MAX;
 }
 
 /**

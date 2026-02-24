@@ -47,7 +47,7 @@
 
 #define RADIOLINK_TX_QUEUE_SIZE (1)
 #define RADIOLINK_CRTP_QUEUE_SIZE (5)
-#define RADIO_ACTIVITY_TIMEOUT_MS (1000)
+#define RADIO_ACTIVITY_TIMEOUT_MS CONFIG_RADIO_ACTIVITY_TIMEOUT_MS
 
 #define RADIOLINK_P2P_QUEUE_SIZE (5)
 
@@ -159,7 +159,12 @@ void radiolinkSyslinkDispatch(SyslinkPacket *slp)
     lastPacketTick = xTaskGetTickCount();
   }
 
-  if (slp->type == SYSLINK_RADIO_RAW)
+  if (slp->type == SYSLINK_RADIO_READY)
+  {
+    // ACK from nRF51 confirming radio is now enabled
+    // No action needed, just silently acknowledge
+  }
+  else if (slp->type == SYSLINK_RADIO_RAW)
   {
     slp->length--; // Decrease to get CRTP size.
     // Assert that we are not dropping any packets
@@ -208,7 +213,8 @@ void radiolinkSyslinkDispatch(SyslinkPacket *slp)
 
 static int radiolinkReceiveCRTPPacket(CRTPPacket *p)
 {
-  if (xQueueReceive(crtpPacketDelivery, p, M2T(100)) == pdTRUE)
+  if (crtpPacketDelivery != 0 &&
+      xQueueReceive(crtpPacketDelivery, p, M2T(100)) == pdTRUE)
   {
     return 0;
   }
@@ -231,7 +237,8 @@ static int radiolinkSendCRTPPacket(CRTPPacket *p)
   slp.length = p->size + 1;
   memcpy(slp.data, &p->header, p->size + 1);
 
-  if (xQueueSend(txQueue, &slp, M2T(100)) == pdTRUE)
+  if (txQueue != 0 &&
+      xQueueSend(txQueue, &slp, M2T(100)) == pdTRUE)
   {
     return true;
   }

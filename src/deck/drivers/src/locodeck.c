@@ -128,6 +128,11 @@ static uwbAlgorithm_t *algorithm = &uwbTwrTagAlgorithm;
 static bool isInit = false;
 static TaskHandle_t uwbTaskHandle = 0;
 static SemaphoreHandle_t algoSemaphore;
+
+// Event counters for mode-switch diagnostics
+static uint32_t dbgRxCount = 0;
+static uint32_t dbgTimeoutCount = 0;
+static uint32_t dbgFailedCount = 0;
 static dwDevice_t dwm_device;
 static dwDevice_t *dwm = &dwm_device;
 
@@ -152,8 +157,8 @@ static STATS_CNT_RATE_DEFINE(spiReadCount, 1000);
 #define MEM_LOCO2_ANCHOR_PAGE_SIZE 0x0100
 #define MEM_LOCO2_PAGE_LEN         (3 * sizeof(float) + 1)
 
-static uint32_t handleMemGetSize(void) { return MEM_LOCO_ANCHOR_BASE + MEM_LOCO_ANCHOR_PAGE_SIZE * 256; }
-static bool handleMemRead(const uint32_t memAddr, const uint8_t readLen, uint8_t* dest);
+static uint32_t handleMemGetSize(const uint8_t internal_id) { return MEM_LOCO_ANCHOR_BASE + MEM_LOCO_ANCHOR_PAGE_SIZE * 256; }
+static bool handleMemRead(const uint8_t internal_id, const uint32_t memAddr, const uint8_t readLen, uint8_t* dest);
 static const MemoryHandlerDef_t memDef = {
   .type = MEM_TYPE_LOCO2,
   .getSize = handleMemGetSize,
@@ -169,18 +174,21 @@ static void txCallback(dwDevice_t *dev)
 
 static void rxCallback(dwDevice_t *dev)
 {
+  dbgRxCount++;
   timeout = algorithm->onEvent(dev, eventPacketReceived);
 }
 
 static void rxTimeoutCallback(dwDevice_t * dev) {
+  dbgTimeoutCount++;
   timeout = algorithm->onEvent(dev, eventReceiveTimeout);
 }
 
 static void rxFailedCallback(dwDevice_t * dev) {
+  dbgFailedCount++;
   timeout = algorithm->onEvent(dev, eventReceiveFailed);
 }
 
-static bool handleMemRead(const uint32_t memAddr, const uint8_t readLen, uint8_t* dest) {
+static bool handleMemRead(const uint8_t internal_id, const uint32_t memAddr, const uint8_t readLen, uint8_t* dest) {
   bool result = false;
 
   static uint8_t unsortedAnchorList[MEM_ANCHOR_ID_LIST_LENGTH];
@@ -282,11 +290,25 @@ static bool switchToMode(const lpsMode_t newMode) {
   bool result = false;
 
   if (lpsMode_auto != newMode && newMode <= LPS_NUMBER_OF_ALGORITHMS) {
+    // Print stats for the mode we are leaving before resetting counters
+    DEBUG_PRINT("DWM: leaving %s -> going to %s (rx=%lu timeout=%lu failed=%lu)\n",
+                algorithmsList[algoOptions.currentRangingMode].name,
+                algorithmsList[newMode].name,
+                (unsigned long)dbgRxCount,
+                (unsigned long)dbgTimeoutCount,
+                (unsigned long)dbgFailedCount);
+    dbgRxCount = 0;
+    dbgTimeoutCount = 0;
+    dbgFailedCount = 0;
+
     algoOptions.currentRangingMode = newMode;
     algorithm = algorithmsList[algoOptions.currentRangingMode].algorithm;
 
     algorithm->init(dwm);
     timeout = algorithm->onEvent(dwm, eventTimeout);
+    DEBUG_PRINT("DWM: mode %s init done, first timeout=%lu ms\n",
+                algorithmsList[algoOptions.currentRangingMode].name,
+                (unsigned long)timeout);
 
     result = true;
   }
@@ -321,8 +343,17 @@ static void processAutoModeSwitching() {
         if (algorithm->isRangingOk()) {
           // We have found an algorithm, stop searching and lock to it.
           algoOptions.modeAutoSearchActive = false;
-          DEBUG_PRINT("Automatic mode: detected %s\n", algorithmsList[algoOptions.currentRangingMode].name);
+          DEBUG_PRINT("Automatic mode: detected %s (rx=%lu timeout=%lu failed=%lu)\n",
+                      algorithmsList[algoOptions.currentRangingMode].name,
+                      (unsigned long)dbgRxCount,
+                      (unsigned long)dbgTimeoutCount,
+                      (unsigned long)dbgFailedCount);
         } else {
+          DEBUG_PRINT("DWM: %s ranging NOT ok (rx=%lu timeout=%lu failed=%lu), trying next\n",
+                      algorithmsList[algoOptions.currentRangingMode].name,
+                      (unsigned long)dbgRxCount,
+                      (unsigned long)dbgTimeoutCount,
+                      (unsigned long)dbgFailedCount);
           lpsMode_t newMode = autoModeSearchGetNextMode();
           autoModeSearchTryMode(newMode, now);
         }
@@ -453,7 +484,11 @@ static void spiSetSpeed(dwDevice_t* dev, dwSpiSpeed_t speed)
   }
   else if (speed == dwSpiSpeedHigh)
   {
+#if defined(CONFIG_DECK_LOCO_SPI_SPEED_12MHZ)
+    spiSpeed = SPI_BAUDRATE_12MHZ;
+#else
     spiSpeed = SPI_BAUDRATE_21MHZ;
+#endif
   }
 }
 
@@ -476,15 +511,6 @@ static void dwm1000Init(DeckInfo *info)
   EXTI_InitTypeDef EXTI_InitStructure;
 
   spiBegin();
-
-  // Set up interrupt
-  SYSCFG_EXTILineConfig(EXTI_PortSource, EXTI_PinSource);
-
-  EXTI_InitStructure.EXTI_Line = EXTI_LineN;
-  EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt;
-  EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising;
-  EXTI_InitStructure.EXTI_LineCmd = ENABLE;
-  EXTI_Init(&EXTI_InitStructure);
 
   // Init pins
   pinMode(CS_PIN, OUTPUT);
@@ -541,12 +567,29 @@ static void dwm1000Init(DeckInfo *info)
 
   dwCommitConfiguration(dwm);
 
+  // Verify the DW1000 is still responding over SPI after configuration.
+  // 0xFFFFFFFF means the chip's SPI interface is unresponsive (MISO floating).
+  if (dwSpiRead32(dwm, SYS_MASK, NO_SUB) == 0xFFFFFFFFul) {
+    DEBUG_PRINT("DWM: ERROR - DW1000 not responding after configure (SPI issue). Deck will not work.\n");
+    isInit = false;
+    return;
+  }
+
   memoryRegisterHandler(&memDef);
 
   algoSemaphore= xSemaphoreCreateMutex();
 
   xTaskCreate(uwbTask, LPS_DECK_TASK_NAME, LPS_DECK_STACKSIZE, NULL,
                     LPS_DECK_TASK_PRI, &uwbTaskHandle);
+
+  // Set up interrupt
+  SYSCFG_EXTILineConfig(EXTI_PortSource, EXTI_PinSource);
+
+  EXTI_InitStructure.EXTI_Line = EXTI_LineN;
+  EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt;
+  EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising;
+  EXTI_InitStructure.EXTI_LineCmd = ENABLE;
+  EXTI_Init(&EXTI_InitStructure);
 
   isInit = true;
 }
@@ -591,6 +634,7 @@ static const DeckDriver dwm1000_deck = {
   #else
   .requiredLowInterferenceRadioMode = true,
   #endif
+
 
   .init = dwm1000Init,
   .test = dwm1000Test,
