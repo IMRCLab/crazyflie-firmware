@@ -190,6 +190,7 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
 
     // DEBUG
     if (tick % 500 == 0) {
+      DEBUG_PRINT("INDI r %d %d %d %d\n", rpm1, rpm2, rpm3, rpm4);
       
       DEBUG_PRINT("INDI t %f %f %f %f\n", (double)t1, (double)t2, (double)t3, (double)t4);
     }
@@ -362,8 +363,8 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
 
   struct vec indi_moments;
   if ((self->indi & 2) && rpm_deck_available) {
-    const float t2t = 0.006f;
-    const float arm = 0.707106781f * 0.046f;
+    const float t2t = THRUST2TORQUE;
+    const float arm = 0.707106781f * ARM_LENGTH;
     self->tau_rpm = mkvec(
       -arm * t1 - arm * t2 + arm * t3 + arm * t4,
       -arm * t1 + arm * t2 + arm * t3 - arm * t4,
