@@ -52,6 +52,7 @@ CDC 2010
 
 static controllerLee_t g_self = {
   .mass = CF_MASS,
+  .kappa_f = MOTORRPM2FORCE,
 
   // Inertia matrix (diagonal matrix), see
   // System Identification of the Crazyflie 2.0 Nano Quadrocopter
@@ -183,10 +184,10 @@ void controllerLee(controllerLee_t* self, control_t *control, const setpoint_t *
     uint16_t rpm3 = logGetUint(logVarRpm3);
     uint16_t rpm4 = logGetUint(logVarRpm4);
 
-    t1 = MOTORRPM2FORCE * powf(rpm1 * 2.0f * M_PI_F / 60.0f, 2);
-    t2 = MOTORRPM2FORCE * powf(rpm2 * 2.0f * M_PI_F / 60.0f, 2);
-    t3 = MOTORRPM2FORCE * powf(rpm3 * 2.0f * M_PI_F / 60.0f, 2);
-    t4 = MOTORRPM2FORCE * powf(rpm4 * 2.0f * M_PI_F / 60.0f, 2);
+    t1 = self->kappa_f * powf(rpm1 * 2.0f * M_PI_F / 60.0f, 2);
+    t2 = self->kappa_f * powf(rpm2 * 2.0f * M_PI_F / 60.0f, 2);
+    t3 = self->kappa_f * powf(rpm3 * 2.0f * M_PI_F / 60.0f, 2);
+    t4 = self->kappa_f * powf(rpm4 * 2.0f * M_PI_F / 60.0f, 2);
 
     // DEBUG
     if (tick % 500 == 0) {
@@ -465,6 +466,8 @@ PARAM_ADD(PARAM_FLOAT, Kpos_I_limit, &g_self.Kpos_I_limit)
 PARAM_ADD(PARAM_FLOAT, mass, &g_self.mass)
 
 PARAM_ADD(PARAM_UINT8, indi, &g_self.indi)
+
+PARAM_ADD(PARAM_FLOAT, kappa_f, &g_self.kappa_f)
 
 PARAM_GROUP_STOP(ctrlLee)
 

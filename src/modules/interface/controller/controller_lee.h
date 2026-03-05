@@ -29,6 +29,7 @@ SOFTWARE.
 // This structure contains the mutable state and inmutable parameters
 typedef struct controllerLee_s {
     float mass;
+    float kappa_f;
     float thrustSi;
     struct vec J; // Inertia matrix (diagonal matrix); kg m^2
 
